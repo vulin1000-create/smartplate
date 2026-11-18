@@ -1,0 +1,10 @@
+{
+  "name": "Remix Remix SmartPlate VN 2.0",
+  "description": "Nền tảng Dinh dưỡng Học đường Thông minh tích hợp Firebase RBAC, AI Vision nhận diện món ăn Việt Nam, tính toán khẩu phần theo độ tuổi và hệ thống báo cáo 5 cấp.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

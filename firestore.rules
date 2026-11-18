@@ -1,0 +1,736 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Pillar 3: Hardened Global Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+    function isEmailVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+
+    function isBootstrappedSuperAdmin() {
+      return isEmailVerified() && request.auth.token.email == 'vulin10000@gmail.com';
+    }
+
+    function callerPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+    function callerExists() {
+      return isSignedIn() && exists(callerPath());
+    }
+    function callerData() {
+      return get(callerPath()).data;
+    }
+    function isActiveUser() {
+      return isEmailVerified() && callerExists() && callerData().status == 'active';
+    }
+    function isSuperAdmin() {
+      return isBootstrappedSuperAdmin() || (isActiveUser() && callerData().role == 'super_admin');
+    }
+    function isSchoolAdmin(schoolId) {
+      return isActiveUser() && callerData().role == 'school_admin' && callerData().schoolId == schoolId;
+    }
+    function isTeacherInSchool(schoolId) {
+      return isActiveUser() && callerData().role == 'teacher' && callerData().schoolId == schoolId;
+    }
+    function isTeacherOfClass(schoolId, classId) {
+      return isTeacherInSchool(schoolId)
+        && callerData().classIds is list
+        && callerData().classIds.size() > 0
+        && classId is string
+        && classId in callerData().classIds;
+    }
+    function isMemberOfSchool(schoolId) {
+      return isActiveUser() && callerData().schoolId == schoolId;
+    }
+
+    // --- Validation Blueprints (Pillar 2) ---
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'status', 'schoolId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'photoURL', 'role', 'status', 'schoolId',
+          'classIds', 'gradeLevel', 'ageGroup', 'allergies', 'linkedChildIds',
+          'verifiedParentIds', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && data.role in ['student', 'parent', 'teacher', 'school_admin', 'super_admin']
+        && data.status in ['active', 'pending_verification', 'suspended', 'deleted']
+        && data.schoolId is string && data.schoolId.size() <= 128
+        && (!('classIds' in data) || (data.classIds is list && data.classIds.size() <= 20 && (data.classIds.size() == 0 || data.classIds[0] is string)))
+        && (!('gradeLevel' in data) || (data.gradeLevel is string && data.gradeLevel.size() <= 40))
+        && (!('ageGroup' in data) || (data.ageGroup in ['6-8', '9-11', '12-14', '15-18', 'adult']))
+        && (!('allergies' in data) || (data.allergies is list && data.allergies.size() <= 20 && (data.allergies.size() == 0 || data.allergies[0] is string)))
+        && (!('linkedChildIds' in data) || (data.linkedChildIds is list && data.linkedChildIds.size() <= 10 && (data.linkedChildIds.size() == 0 || data.linkedChildIds[0] is string)))
+        && (!('verifiedParentIds' in data) || (data.verifiedParentIds is list && data.verifiedParentIds.size() <= 5 && (data.verifiedParentIds.size() == 0 || data.verifiedParentIds[0] is string)))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSchool(data, schoolId) {
+      return data.keys().hasAll(['id', 'name', 'code', 'province', 'level', 'boardingEnabled', 'status', 'retentionDays', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'code', 'province', 'level', 'boardingEnabled', 'status', 'adminUid', 'retentionDays', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == schoolId && isValidId(data.id)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 160
+        && data.code is string && data.code.size() >= 2 && data.code.size() <= 32
+        && data.province is string && data.province.size() >= 2 && data.province.size() <= 80
+        && data.level in ['primary', 'secondary', 'high', 'k12']
+        && data.boardingEnabled is bool
+        && data.status in ['active', 'inactive']
+        && (!('adminUid' in data) || (data.adminUid is string && data.adminUid.size() <= 128))
+        && data.retentionDays is int && data.retentionDays >= 30 && data.retentionDays <= 3650
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAcademicYear(data, schoolId, yearId) {
+      return data.keys().hasAll(['id', 'schoolId', 'name', 'startDate', 'endDate', 'isCurrent', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'schoolId', 'name', 'startDate', 'endDate', 'isCurrent', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == yearId && isValidId(data.id)
+        && data.schoolId is string && data.schoolId == schoolId && isValidId(data.schoolId)
+        && data.name is string && data.name.size() >= 4 && data.name.size() <= 40
+        && data.startDate is string && data.startDate.size() <= 20
+        && data.endDate is string && data.endDate.size() <= 20
+        && data.isCurrent is bool
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function isValidSchoolClass(data, schoolId, classId) {
+      return data.keys().hasAll(['id', 'schoolId', 'academicYearId', 'name', 'grade', 'ageGroup', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'schoolId', 'academicYearId', 'name', 'grade', 'ageGroup', 'teacherUid', 'teacherName', 'studentCount', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == classId && isValidId(data.id)
+        && data.schoolId is string && data.schoolId == schoolId && isValidId(data.schoolId)
+        && data.academicYearId is string && data.academicYearId.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 60
+        && data.grade is string && data.grade.size() >= 1 && data.grade.size() <= 30
+        && data.ageGroup in ['6-8', '9-11', '12-14', '15-18']
+        && (!('teacherUid' in data) || (data.teacherUid is string && data.teacherUid.size() <= 128))
+        && (!('teacherName' in data) || (data.teacherName is string && data.teacherName.size() <= 120))
+        && (!('studentCount' in data) || (data.studentCount is int && data.studentCount >= 0 && data.studentCount <= 1000))
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function isValidParentChildLink(data, linkId) {
+      return data.keys().hasAll(['id', 'schoolId', 'parentUid', 'studentUid', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'schoolId', 'parentUid', 'parentEmail', 'studentUid', 'studentName', 'classId', 'status', 'verifiedByUid', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == linkId && isValidId(data.id)
+        && data.schoolId is string && data.schoolId.size() >= 1 && data.schoolId.size() <= 128
+        && data.parentUid is string && isValidId(data.parentUid)
+        && (!('parentEmail' in data) || (data.parentEmail is string && data.parentEmail.size() <= 254))
+        && data.studentUid is string && isValidId(data.studentUid)
+        && (!('studentName' in data) || (data.studentName is string && data.studentName.size() <= 120))
+        && (!('classId' in data) || (data.classId is string && data.classId.size() <= 128))
+        && data.status in ['pending', 'verified', 'rejected', 'revoked']
+        && (!('verifiedByUid' in data) || (data.verifiedByUid is string && data.verifiedByUid.size() <= 128))
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function isValidVietnameseFood(data, foodId) {
+      return data.keys().hasAll(['id', 'nameVi', 'category', 'standardServingG', 'energyKcal', 'proteinG', 'carbsG', 'fatG', 'fiberG', 'verified', 'sourceRef', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'nameVi', 'nameEn', 'category', 'ingredients', 'standardServingG',
+          'servingLabel', 'energyKcal', 'proteinG', 'carbsG', 'fatG', 'fiberG',
+          'micronutrients', 'allergens', 'sourceRef', 'verified', 'updatedDate',
+          'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == foodId && isValidId(data.id)
+        && data.nameVi is string && data.nameVi.size() >= 1 && data.nameVi.size() <= 160
+        && (!('nameEn' in data) || (data.nameEn is string && data.nameEn.size() <= 160))
+        && data.category in ['grains_starches', 'meat', 'seafood', 'eggs', 'dairy', 'vegetables', 'fruits', 'legumes', 'fats_oils', 'traditional_dishes', 'soups_broths', 'boarding_meals']
+        && (!('ingredients' in data) || (data.ingredients is list && data.ingredients.size() <= 30 && (data.ingredients.size() == 0 || data.ingredients[0] is string)))
+        && data.standardServingG is number && data.standardServingG > 0 && data.standardServingG <= 5000
+        && (!('servingLabel' in data) || (data.servingLabel is string && data.servingLabel.size() <= 80))
+        && data.energyKcal is number && data.energyKcal >= 0 && data.energyKcal <= 10000
+        && data.proteinG is number && data.proteinG >= 0 && data.proteinG <= 1000
+        && data.carbsG is number && data.carbsG >= 0 && data.carbsG <= 1000
+        && data.fatG is number && data.fatG >= 0 && data.fatG <= 1000
+        && data.fiberG is number && data.fiberG >= 0 && data.fiberG <= 500
+        && (!('micronutrients' in data) || data.micronutrients is map)
+        && (!('allergens' in data) || (data.allergens is list && data.allergens.size() <= 15 && (data.allergens.size() == 0 || data.allergens[0] is string)))
+        && data.sourceRef is string && data.sourceRef.size() <= 300
+        && data.verified is bool
+        && (!('updatedDate' in data) || (data.updatedDate is string && data.updatedDate.size() <= 30))
+        && (!('createdByUid' in data) || (data.createdByUid is string && data.createdByUid.size() <= 128))
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function isValidMealLog(data, logId) {
+      return data.keys().hasAll(['id', 'schoolId', 'studentUid', 'mealType', 'dateStr', 'items', 'nutritionTotals', 'scoreBreakdown', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'schoolId', 'classId', 'studentUid', 'studentName', 'verifiedParentIds',
+          'mealType', 'dateStr', 'imagePreviewUrl', 'imageQuality', 'items',
+          'nutritionTotals', 'scoreBreakdown', 'aiAdvice', 'teacherReviewed', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == logId && isValidId(data.id)
+        && data.schoolId is string && data.schoolId.size() >= 1 && data.schoolId.size() <= 128
+        && (!('classId' in data) || (data.classId is string && data.classId.size() <= 128))
+        && data.studentUid is string && isValidId(data.studentUid)
+        && (!('studentName' in data) || (data.studentName is string && data.studentName.size() <= 120))
+        && (!('verifiedParentIds' in data) || (data.verifiedParentIds is list && data.verifiedParentIds.size() <= 5 && (data.verifiedParentIds.size() == 0 || data.verifiedParentIds[0] is string)))
+        && data.mealType in ['breakfast', 'lunch', 'dinner', 'snack']
+        && data.dateStr is string && data.dateStr.size() <= 20
+        && (!('imagePreviewUrl' in data) || (data.imagePreviewUrl is string && data.imagePreviewUrl.size() <= 200000))
+        && (!('imageQuality' in data) || (data.imageQuality in ['good', 'blurry', 'dark', 'partial', 'manual']))
+        && data.items is list && data.items.size() <= 25 && (data.items.size() == 0 || data.items[0] is map)
+        && data.nutritionTotals is map
+        && data.scoreBreakdown is map
+        && (!('aiAdvice' in data) || data.aiAdvice is map)
+        && (!('teacherReviewed' in data) || data.teacherReviewed is bool)
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function isValidMenuPlan(data, menuId) {
+      return data.keys().hasAll(['id', 'schoolId', 'title', 'periodType', 'ageGroup', 'status', 'days', 'createdByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'schoolId', 'classId', 'title', 'periodType', 'startDate', 'endDate',
+          'gradeLevel', 'ageGroup', 'budgetVndPerMeal', 'excludedAllergens', 'foodSources',
+          'status', 'days', 'nutritionSummary', 'createdByUid', 'approvedByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == menuId && isValidId(data.id)
+        && data.schoolId is string && data.schoolId.size() >= 1 && data.schoolId.size() <= 128
+        && (!('classId' in data) || (data.classId is string && data.classId.size() <= 128))
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 180
+        && data.periodType in ['daily', 'weekly', 'monthly']
+        && (!('startDate' in data) || (data.startDate is string && data.startDate.size() <= 20))
+        && (!('endDate' in data) || (data.endDate is string && data.endDate.size() <= 20))
+        && (!('gradeLevel' in data) || (data.gradeLevel is string && data.gradeLevel.size() <= 40))
+        && data.ageGroup in ['6-8', '9-11', '12-14', '15-18']
+        && (!('budgetVndPerMeal' in data) || (data.budgetVndPerMeal is number && data.budgetVndPerMeal >= 0 && data.budgetVndPerMeal <= 1000000))
+        && (!('excludedAllergens' in data) || (data.excludedAllergens is list && data.excludedAllergens.size() <= 15 && (data.excludedAllergens.size() == 0 || data.excludedAllergens[0] is string)))
+        && (!('foodSources' in data) || (data.foodSources is list && data.foodSources.size() <= 15 && (data.foodSources.size() == 0 || data.foodSources[0] is string)))
+        && data.status in ['draft', 'ai_suggested', 'pending_approval', 'approved', 'rejected', 'published']
+        && data.days is list && data.days.size() <= 35 && (data.days.size() == 0 || data.days[0] is map)
+        && (!('nutritionSummary' in data) || data.nutritionSummary is map)
+        && data.createdByUid is string && isValidId(data.createdByUid)
+        && (!('approvedByUid' in data) || (data.approvedByUid is string && data.approvedByUid.size() <= 128))
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function isValidTeacherComment(data, commentId) {
+      return data.keys().hasAll(['id', 'schoolId', 'classId', 'teacherUid', 'studentUid', 'category', 'content', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'schoolId', 'classId', 'teacherUid', 'teacherName', 'studentUid', 'studentName', 'verifiedParentIds', 'category', 'content', 'homeSuggestion', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == commentId && isValidId(data.id)
+        && data.schoolId is string && data.schoolId.size() >= 1 && data.schoolId.size() <= 128
+        && data.classId is string && data.classId.size() >= 1 && data.classId.size() <= 128
+        && data.teacherUid is string && isValidId(data.teacherUid)
+        && (!('teacherName' in data) || (data.teacherName is string && data.teacherName.size() <= 120))
+        && data.studentUid is string && isValidId(data.studentUid)
+        && (!('studentName' in data) || (data.studentName is string && data.studentName.size() <= 120))
+        && (!('verifiedParentIds' in data) || (data.verifiedParentIds is list && data.verifiedParentIds.size() <= 5 && (data.verifiedParentIds.size() == 0 || data.verifiedParentIds[0] is string)))
+        && data.category in ['praise', 'attention', 'allergy_note', 'home_activity']
+        && data.content is string && data.content.size() >= 2 && data.content.size() <= 1000
+        && (!('homeSuggestion' in data) || (data.homeSuggestion is string && data.homeSuggestion.size() <= 500))
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function isValidStudentTask(data, taskId) {
+      return data.keys().hasAll(['id', 'schoolId', 'classId', 'teacherUid', 'title', 'points', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'schoolId', 'classId', 'teacherUid', 'title', 'description', 'targetCategory', 'points', 'dueDate', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == taskId && isValidId(data.id)
+        && data.schoolId is string && data.schoolId.size() >= 1 && data.schoolId.size() <= 128
+        && data.classId is string && data.classId.size() >= 1 && data.classId.size() <= 128
+        && data.teacherUid is string && isValidId(data.teacherUid)
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 180
+        && (!('description' in data) || (data.description is string && data.description.size() <= 800))
+        && (!('targetCategory' in data) || (data.targetCategory is string && data.targetCategory.size() <= 60))
+        && data.points is int && data.points >= 1 && data.points <= 500
+        && (!('dueDate' in data) || (data.dueDate is string && data.dueDate.size() <= 20))
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function isValidStudentProgress(data, studentUid) {
+      return data.keys().hasAll(['studentUid', 'schoolId', 'points', 'streakDays', 'updatedAt'])
+        && data.keys().hasOnly(['studentUid', 'schoolId', 'classId', 'verifiedParentIds', 'points', 'streakDays', 'completedTaskIds', 'quizHistory', 'badges', 'growthRecords', 'updatedAt'])
+        && data.studentUid is string && data.studentUid == studentUid && isValidId(data.studentUid)
+        && data.schoolId is string && data.schoolId.size() >= 1 && data.schoolId.size() <= 128
+        && (!('classId' in data) || (data.classId is string && data.classId.size() <= 128))
+        && (!('verifiedParentIds' in data) || (data.verifiedParentIds is list && data.verifiedParentIds.size() <= 5 && (data.verifiedParentIds.size() == 0 || data.verifiedParentIds[0] is string)))
+        && data.points is int && data.points >= 0 && data.points <= 1000000
+        && data.streakDays is int && data.streakDays >= 0 && data.streakDays <= 3650
+        && (!('completedTaskIds' in data) || (data.completedTaskIds is list && data.completedTaskIds.size() <= 50 && (data.completedTaskIds.size() == 0 || data.completedTaskIds[0] is string)))
+        && (!('quizHistory' in data) || (data.quizHistory is list && data.quizHistory.size() <= 30 && (data.quizHistory.size() == 0 || data.quizHistory[0] is map)))
+        && (!('badges' in data) || (data.badges is list && data.badges.size() <= 30 && (data.badges.size() == 0 || data.badges[0] is string)))
+        && (!('growthRecords' in data) || (data.growthRecords is list && data.growthRecords.size() <= 50 && (data.growthRecords.size() == 0 || data.growthRecords[0] is map)))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidConsentRecord(data, consentId) {
+      return data.keys().hasAll(['id', 'schoolId', 'userId', 'subjectStudentUid', 'consentType', 'granted', 'policyVersion', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'schoolId', 'userId', 'subjectStudentUid', 'consentType', 'granted', 'policyVersion', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == consentId && isValidId(data.id)
+        && data.schoolId is string && data.schoolId.size() <= 128
+        && data.userId is string && isValidId(data.userId)
+        && data.subjectStudentUid is string && isValidId(data.subjectStudentUid)
+        && data.consentType in ['ai_photo_analysis', 'growth_tracking', 'nutrition_reporting', 'data_retention']
+        && data.granted is bool
+        && data.policyVersion is string && data.policyVersion.size() >= 1 && data.policyVersion.size() <= 40
+        && data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data, logId) {
+      return data.keys().hasAll(['id', 'actorUid', 'actorRole', 'action', 'targetCollection', 'targetId', 'createdAt'])
+        && data.keys().hasOnly(['id', 'schoolId', 'actorUid', 'actorEmail', 'actorRole', 'action', 'targetCollection', 'targetId', 'details', 'createdAt'])
+        && data.id is string && data.id == logId && isValidId(data.id)
+        && (!('schoolId' in data) || (data.schoolId is string && data.schoolId.size() <= 128))
+        && data.actorUid is string && data.actorUid == request.auth.uid && isValidId(data.actorUid)
+        && (!('actorEmail' in data) || (data.actorEmail is string && data.actorEmail.size() <= 254))
+        && data.actorRole is string && data.actorRole.size() <= 40
+        && data.action is string && data.action.size() >= 2 && data.action.size() <= 80
+        && data.targetCollection is string && data.targetCollection.size() <= 80
+        && data.targetId is string && data.targetId.size() <= 128
+        && (!('details' in data) || (data.details is string && data.details.size() <= 1000))
+        && data.createdAt is timestamp && data.createdAt == request.time;
+    }
+
+    function isValidAiUsageLog(data, logId) {
+      return data.keys().hasAll(['id', 'userId', 'userRole', 'endpoint', 'model', 'totalTokens', 'estimatedCostUsd', 'latencyMs', 'status', 'createdAt'])
+        && data.keys().hasOnly(['id', 'schoolId', 'userId', 'userRole', 'endpoint', 'model', 'promptTokens', 'outputTokens', 'totalTokens', 'estimatedCostUsd', 'latencyMs', 'status', 'errorMessage', 'createdAt'])
+        && data.id is string && data.id == logId && isValidId(data.id)
+        && (!('schoolId' in data) || (data.schoolId is string && data.schoolId.size() <= 128))
+        && data.userId is string && data.userId == request.auth.uid && isValidId(data.userId)
+        && data.userRole is string && data.userRole.size() <= 40
+        && data.endpoint is string && data.endpoint.size() <= 120
+        && data.model is string && data.model.size() <= 80
+        && (!('promptTokens' in data) || (data.promptTokens is int && data.promptTokens >= 0))
+        && (!('outputTokens' in data) || (data.outputTokens is int && data.outputTokens >= 0))
+        && data.totalTokens is int && data.totalTokens >= 0 && data.totalTokens <= 10000000
+        && data.estimatedCostUsd is number && data.estimatedCostUsd >= 0 && data.estimatedCostUsd <= 1000
+        && data.latencyMs is int && data.latencyMs >= 0 && data.latencyMs <= 600000
+        && data.status in ['success', 'error', 'rate_limited', 'timeout']
+        && (!('errorMessage' in data) || (data.errorMessage is string && data.errorMessage.size() <= 400))
+        && data.createdAt is timestamp && data.createdAt == request.time;
+    }
+
+    function isValidSystemConfig(data, configId) {
+      return data.keys().hasAll(['configId', 'aiRateLimitPerMinute', 'aiTimeoutMs', 'defaultRetentionDays', 'maintenanceMode', 'updatedByUid', 'updatedAt'])
+        && data.keys().hasOnly(['configId', 'aiRateLimitPerMinute', 'aiTimeoutMs', 'defaultRetentionDays', 'backupSchedule', 'lastBackupExportAt', 'maintenanceMode', 'updatedByUid', 'updatedAt'])
+        && data.configId is string && data.configId == configId && configId == 'global'
+        && data.aiRateLimitPerMinute is int && data.aiRateLimitPerMinute >= 1 && data.aiRateLimitPerMinute <= 1000
+        && data.aiTimeoutMs is int && data.aiTimeoutMs >= 1000 && data.aiTimeoutMs <= 120000
+        && data.defaultRetentionDays is int && data.defaultRetentionDays >= 30 && data.defaultRetentionDays <= 3650
+        && (!('backupSchedule' in data) || (data.backupSchedule is string && data.backupSchedule.size() <= 60))
+        && (!('lastBackupExportAt' in data) || (data.lastBackupExportAt is string && data.lastBackupExportAt.size() <= 60))
+        && data.maintenanceMode is bool
+        && data.updatedByUid is string && data.updatedByUid == request.auth.uid
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidNotification(data, notifId) {
+      return data.keys().hasAll(['id', 'recipientUid', 'title', 'body', 'type', 'read', 'createdAt'])
+        && data.keys().hasOnly(['id', 'schoolId', 'recipientUid', 'title', 'body', 'type', 'read', 'createdAt'])
+        && data.id is string && data.id == notifId && isValidId(data.id)
+        && (!('schoolId' in data) || (data.schoolId is string && data.schoolId.size() <= 128))
+        && data.recipientUid is string && isValidId(data.recipientUid)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.body is string && data.body.size() >= 1 && data.body.size() <= 600
+        && data.type in ['menu', 'comment', 'allergy', 'task', 'system']
+        && data.read is bool
+        && data.createdAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Users (Strict tenant + teacher class isolation)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (
+        request.auth.uid == userId ||
+        isSuperAdmin() ||
+        (resource != null && isActiveUser() && callerData().role == 'school_admin' && existing().schoolId == callerData().schoolId) ||
+        (resource != null && isActiveUser() && callerData().role == 'teacher' && existing().schoolId == callerData().schoolId && existing().role == 'student' && existing().classIds is list && callerData().classIds is list && callerData().classIds.size() > 0 && existing().classIds.hasAny(callerData().classIds)) ||
+        (resource != null && isActiveUser() && callerData().role == 'parent' && userId in callerData().linkedChildIds)
+      );
+      allow list: if isSignedIn() && (
+        resource.data.uid == request.auth.uid ||
+        isBootstrappedSuperAdmin() ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'super_admin') ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'school_admin' && resource.data.schoolId == callerData().schoolId) ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'teacher' && resource.data.schoolId == callerData().schoolId && resource.data.role == 'student' && resource.data.classIds is list && callerData().classIds is list && callerData().classIds.size() > 0 && resource.data.classIds.hasAny(callerData().classIds))
+      );
+      allow create: if isValidId(userId) && isEmailVerified() && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin() ||
+          (
+            request.auth.uid == userId &&
+            incoming().role in ['student', 'parent'] &&
+            incoming().status == 'active' &&
+            (!('linkedChildIds' in incoming()) || incoming().linkedChildIds.size() == 0) &&
+            (!('verifiedParentIds' in incoming()) || incoming().verifiedParentIds.size() == 0)
+          ) ||
+          (isSchoolAdmin(incoming().schoolId) && incoming().role in ['student', 'parent', 'teacher'])
+        );
+      allow update: if isValidId(userId) && isEmailVerified() && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin() ||
+          (
+            isActiveUser() && request.auth.uid == userId &&
+            incoming().role == existing().role &&
+            incoming().status == existing().status &&
+            incoming().schoolId == existing().schoolId &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'gradeLevel', 'ageGroup', 'allergies', 'updatedAt'])
+          ) ||
+          (
+            isSchoolAdmin(existing().schoolId) &&
+            incoming().schoolId == existing().schoolId &&
+            incoming().role in ['student', 'parent', 'teacher'] &&
+            existing().role in ['student', 'parent', 'teacher']
+          ) ||
+          (
+            isActiveUser() && callerData().role == 'parent' &&
+            userId in callerData().linkedChildIds &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['allergies', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(userId) && (isSuperAdmin() || (isActiveUser() && request.auth.uid == userId));
+    }
+
+    // Schools & subcollections
+    match /schools/{schoolId} {
+      allow get: if isValidId(schoolId) && isSignedIn() && (isSuperAdmin() || isMemberOfSchool(schoolId) || (resource != null && existing().status == 'active'));
+      allow list: if isSignedIn() && (isBootstrappedSuperAdmin() || resource.data.status == 'active' || (callerExists() && callerData().role == 'super_admin'));
+      allow create: if isValidId(schoolId) && isSuperAdmin() && isValidSchool(incoming(), schoolId)
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(schoolId) && isValidSchool(incoming(), schoolId)
+        && incoming().id == existing().id && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && (isSuperAdmin() || (isSchoolAdmin(schoolId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'boardingEnabled', 'retentionDays', 'updatedAt'])));
+      allow delete: if isValidId(schoolId) && isSuperAdmin();
+
+      match /academic_years/{yearId} {
+        allow get: if isValidId(schoolId) && isValidId(yearId) && (isSuperAdmin() || isMemberOfSchool(schoolId));
+        allow list: if isSignedIn() && (isBootstrappedSuperAdmin() || (callerExists() && callerData().schoolId == schoolId) || (callerExists() && callerData().role == 'super_admin'));
+        allow create: if isValidId(schoolId) && isValidId(yearId) && exists(/databases/$(database)/documents/schools/$(schoolId))
+          && (isSuperAdmin() || isSchoolAdmin(schoolId))
+          && isValidAcademicYear(incoming(), schoolId, yearId)
+          && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isValidId(schoolId) && isValidId(yearId)
+          && (isSuperAdmin() || isSchoolAdmin(schoolId))
+          && isValidAcademicYear(incoming(), schoolId, yearId)
+          && incoming().id == existing().id && incoming().schoolId == existing().schoolId
+          && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+        allow delete: if isValidId(schoolId) && isValidId(yearId) && (isSuperAdmin() || isSchoolAdmin(schoolId));
+      }
+
+      match /classes/{classId} {
+        allow get: if isValidId(schoolId) && isValidId(classId) && (isSuperAdmin() || isMemberOfSchool(schoolId));
+        allow list: if isSignedIn() && (isBootstrappedSuperAdmin() || (callerExists() && callerData().schoolId == schoolId) || (callerExists() && callerData().role == 'super_admin'));
+        allow create: if isValidId(schoolId) && isValidId(classId) && exists(/databases/$(database)/documents/schools/$(schoolId))
+          && (isSuperAdmin() || isSchoolAdmin(schoolId))
+          && isValidSchoolClass(incoming(), schoolId, classId)
+          && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+        allow update: if isValidId(schoolId) && isValidId(classId)
+          && (isSuperAdmin() || isSchoolAdmin(schoolId))
+          && isValidSchoolClass(incoming(), schoolId, classId)
+          && incoming().id == existing().id && incoming().schoolId == existing().schoolId
+          && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+        allow delete: if isValidId(schoolId) && isValidId(classId) && (isSuperAdmin() || isSchoolAdmin(schoolId));
+      }
+    }
+
+    // Parent-Child Verification Links
+    match /parent_child_links/{linkId} {
+      allow get: if isValidId(linkId) && isSignedIn() && (
+        isSuperAdmin() ||
+        (resource != null && (
+          existing().parentUid == request.auth.uid ||
+          existing().studentUid == request.auth.uid ||
+          isSchoolAdmin(existing().schoolId) ||
+          isTeacherInSchool(existing().schoolId)
+        ))
+      );
+      allow list: if isSignedIn() && (
+        isBootstrappedSuperAdmin() ||
+        resource.data.parentUid == request.auth.uid ||
+        resource.data.studentUid == request.auth.uid ||
+        (callerExists() && callerData().status == 'active' && callerData().role in ['school_admin', 'teacher'] && resource.data.schoolId == callerData().schoolId) ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'super_admin')
+      );
+      allow create: if isValidId(linkId) && isActiveUser()
+        && isValidParentChildLink(incoming(), linkId)
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin() ||
+          isSchoolAdmin(incoming().schoolId) ||
+          (callerData().role == 'parent' && incoming().parentUid == request.auth.uid && incoming().status == 'pending')
+        );
+      allow update: if isValidId(linkId) && isActiveUser()
+        && isValidParentChildLink(incoming(), linkId)
+        && incoming().id == existing().id && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin() ||
+          isSchoolAdmin(existing().schoolId) ||
+          isTeacherInSchool(existing().schoolId)
+        );
+      allow delete: if isValidId(linkId) && (isSuperAdmin() || (resource != null && isSchoolAdmin(existing().schoolId)) || (resource != null && isActiveUser() && existing().parentUid == request.auth.uid));
+    }
+
+    // Vietnamese Food Database
+    match /foods/{foodId} {
+      allow get: if isValidId(foodId) && isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isValidId(foodId) && isActiveUser()
+        && isValidVietnameseFood(incoming(), foodId)
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time
+        && (isSuperAdmin() || callerData().role in ['school_admin', 'teacher']);
+      allow update: if isValidId(foodId) && isActiveUser()
+        && isValidVietnameseFood(incoming(), foodId)
+        && incoming().id == existing().id && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && (isSuperAdmin() || callerData().role == 'school_admin');
+      allow delete: if isValidId(foodId) && isSuperAdmin();
+    }
+
+    // Meal Logs (Student, Verified Parent, Assigned Class Teacher, School Admin, Super Admin)
+    match /meal_logs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn() && (
+        isSuperAdmin() ||
+        (resource != null && (
+          existing().studentUid == request.auth.uid ||
+          (isActiveUser() && callerData().role == 'parent' && existing().verifiedParentIds is list && request.auth.uid in existing().verifiedParentIds) ||
+          isSchoolAdmin(existing().schoolId) ||
+          isTeacherOfClass(existing().schoolId, existing().classId)
+        ))
+      );
+      allow list: if isSignedIn() && (
+        isBootstrappedSuperAdmin() ||
+        resource.data.studentUid == request.auth.uid ||
+        (resource.data.verifiedParentIds is list && request.auth.uid in resource.data.verifiedParentIds) ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'super_admin') ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'school_admin' && resource.data.schoolId == callerData().schoolId) ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'teacher' && resource.data.schoolId == callerData().schoolId && callerData().classIds is list && resource.data.classId in callerData().classIds)
+      );
+      allow create: if isValidId(logId) && isActiveUser()
+        && isValidMealLog(incoming(), logId)
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin() ||
+          (incoming().studentUid == request.auth.uid && incoming().schoolId == callerData().schoolId) ||
+          (callerData().role == 'parent' && callerData().schoolId == incoming().schoolId && callerData().linkedChildIds is list && incoming().studentUid in callerData().linkedChildIds && incoming().verifiedParentIds is list && request.auth.uid in incoming().verifiedParentIds) ||
+          isSchoolAdmin(incoming().schoolId) ||
+          isTeacherOfClass(incoming().schoolId, incoming().classId)
+        );
+      allow update: if isValidId(logId) && isActiveUser()
+        && isValidMealLog(incoming(), logId)
+        && incoming().id == existing().id && incoming().studentUid == existing().studentUid
+        && incoming().schoolId == existing().schoolId && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin() ||
+          (existing().studentUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['items', 'nutritionTotals', 'scoreBreakdown', 'aiAdvice', 'mealType', 'updatedAt'])) ||
+          (isTeacherOfClass(existing().schoolId, existing().classId) && incoming().diff(existing()).affectedKeys().hasOnly(['teacherReviewed', 'updatedAt'])) ||
+          isSchoolAdmin(existing().schoolId)
+        );
+      allow delete: if isValidId(logId) && (isSuperAdmin() || (resource != null && isActiveUser() && existing().studentUid == request.auth.uid) || (resource != null && isSchoolAdmin(existing().schoolId)));
+    }
+
+    // Menus
+    match /menus/{menuId} {
+      allow get: if isValidId(menuId) && isSignedIn() && (isSuperAdmin() || (resource != null && isMemberOfSchool(existing().schoolId)));
+      allow list: if isSignedIn() && (
+        isBootstrappedSuperAdmin() ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'super_admin') ||
+        (callerExists() && callerData().status == 'active' && resource.data.schoolId == callerData().schoolId)
+      );
+      allow create: if isValidId(menuId) && isActiveUser()
+        && isValidMenuPlan(incoming(), menuId)
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time
+        && (isSuperAdmin() || isSchoolAdmin(incoming().schoolId) || isTeacherInSchool(incoming().schoolId));
+      allow update: if isValidId(menuId) && isActiveUser()
+        && isValidMenuPlan(incoming(), menuId)
+        && incoming().id == existing().id && incoming().schoolId == existing().schoolId
+        && incoming().createdByUid == existing().createdByUid && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isSuperAdmin() || isSchoolAdmin(existing().schoolId) || (isTeacherInSchool(existing().schoolId) && existing().createdByUid == request.auth.uid && existing().status != 'published' && incoming().status in ['draft', 'ai_suggested', 'pending_approval']));
+      allow delete: if isValidId(menuId) && (isSuperAdmin() || (resource != null && isSchoolAdmin(existing().schoolId)));
+    }
+
+    // Teacher Comments (Assigned class teacher isolation)
+    match /teacher_comments/{commentId} {
+      allow get: if isValidId(commentId) && isSignedIn() && (
+        isSuperAdmin() ||
+        (resource != null && (
+          existing().studentUid == request.auth.uid ||
+          existing().teacherUid == request.auth.uid ||
+          (isActiveUser() && callerData().role == 'parent' && existing().verifiedParentIds is list && request.auth.uid in existing().verifiedParentIds) ||
+          isSchoolAdmin(existing().schoolId) ||
+          isTeacherOfClass(existing().schoolId, existing().classId)
+        ))
+      );
+      allow list: if isSignedIn() && (
+        isBootstrappedSuperAdmin() ||
+        resource.data.studentUid == request.auth.uid ||
+        resource.data.teacherUid == request.auth.uid ||
+        (resource.data.verifiedParentIds is list && request.auth.uid in resource.data.verifiedParentIds) ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'super_admin') ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'school_admin' && resource.data.schoolId == callerData().schoolId) ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'teacher' && resource.data.schoolId == callerData().schoolId && callerData().classIds is list && resource.data.classId in callerData().classIds)
+      );
+      allow create: if isValidId(commentId) && isActiveUser()
+        && isValidTeacherComment(incoming(), commentId)
+        && incoming().teacherUid == request.auth.uid
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time
+        && (isSuperAdmin() || isSchoolAdmin(incoming().schoolId) || isTeacherOfClass(incoming().schoolId, incoming().classId));
+      allow update: if isValidId(commentId) && isActiveUser()
+        && isValidTeacherComment(incoming(), commentId)
+        && incoming().id == existing().id && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && (isSuperAdmin() || isSchoolAdmin(existing().schoolId) || existing().teacherUid == request.auth.uid);
+      allow delete: if isValidId(commentId) && (isSuperAdmin() || (resource != null && isSchoolAdmin(existing().schoolId)) || (resource != null && isActiveUser() && existing().teacherUid == request.auth.uid));
+    }
+
+    // Student Tasks
+    match /student_tasks/{taskId} {
+      allow get: if isValidId(taskId) && isSignedIn() && (isSuperAdmin() || (resource != null && isMemberOfSchool(existing().schoolId)));
+      allow list: if isSignedIn() && (
+        isBootstrappedSuperAdmin() ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'super_admin') ||
+        (callerExists() && callerData().status == 'active' && resource.data.schoolId == callerData().schoolId)
+      );
+      allow create: if isValidId(taskId) && isActiveUser()
+        && isValidStudentTask(incoming(), taskId)
+        && incoming().teacherUid == request.auth.uid
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time
+        && (isSuperAdmin() || isSchoolAdmin(incoming().schoolId) || isTeacherOfClass(incoming().schoolId, incoming().classId));
+      allow update: if isValidId(taskId) && isActiveUser()
+        && isValidStudentTask(incoming(), taskId)
+        && incoming().id == existing().id && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && (isSuperAdmin() || isSchoolAdmin(existing().schoolId) || existing().teacherUid == request.auth.uid);
+      allow delete: if isValidId(taskId) && (isSuperAdmin() || (resource != null && isSchoolAdmin(existing().schoolId)) || (resource != null && isActiveUser() && existing().teacherUid == request.auth.uid));
+    }
+
+    // Student Progress (safe null-resource handling + teacher class isolation)
+    match /student_progress/{studentUid} {
+      allow get: if isValidId(studentUid) && isSignedIn() && (
+        isSuperAdmin() ||
+        request.auth.uid == studentUid ||
+        (resource == null && isActiveUser() && callerData().role == 'parent' && callerData().linkedChildIds is list && studentUid in callerData().linkedChildIds) ||
+        (resource != null && (
+          (isActiveUser() && callerData().role == 'parent' && existing().verifiedParentIds is list && request.auth.uid in existing().verifiedParentIds) ||
+          isSchoolAdmin(existing().schoolId) ||
+          isTeacherOfClass(existing().schoolId, existing().classId)
+        ))
+      );
+      allow list: if isSignedIn() && (
+        isBootstrappedSuperAdmin() ||
+        resource.data.studentUid == request.auth.uid ||
+        (resource.data.verifiedParentIds is list && request.auth.uid in resource.data.verifiedParentIds) ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'super_admin') ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'school_admin' && resource.data.schoolId == callerData().schoolId) ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'teacher' && resource.data.schoolId == callerData().schoolId && callerData().classIds is list && resource.data.classId in callerData().classIds)
+      );
+      allow create: if isValidId(studentUid) && isActiveUser()
+        && isValidStudentProgress(incoming(), studentUid)
+        && incoming().updatedAt == request.time
+        && (isSuperAdmin() || request.auth.uid == studentUid || isSchoolAdmin(incoming().schoolId) || isTeacherOfClass(incoming().schoolId, incoming().classId));
+      allow update: if isValidId(studentUid) && isActiveUser()
+        && isValidStudentProgress(incoming(), studentUid)
+        && incoming().studentUid == existing().studentUid && incoming().schoolId == existing().schoolId
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin() ||
+          request.auth.uid == studentUid ||
+          isSchoolAdmin(existing().schoolId) ||
+          isTeacherOfClass(existing().schoolId, existing().classId) ||
+          (callerData().role == 'parent' && existing().verifiedParentIds is list && request.auth.uid in existing().verifiedParentIds && incoming().diff(existing()).affectedKeys().hasOnly(['growthRecords', 'updatedAt']))
+        );
+      allow delete: if isValidId(studentUid) && (isSuperAdmin() || request.auth.uid == studentUid);
+    }
+
+    // Consent Records
+    match /consent_records/{consentId} {
+      allow get: if isValidId(consentId) && isSignedIn() && (
+        isSuperAdmin() ||
+        (resource != null && (
+          existing().userId == request.auth.uid ||
+          existing().subjectStudentUid == request.auth.uid ||
+          isSchoolAdmin(existing().schoolId)
+        ))
+      );
+      allow list: if isSignedIn() && (
+        isBootstrappedSuperAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.subjectStudentUid == request.auth.uid ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'super_admin') ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'school_admin' && resource.data.schoolId == callerData().schoolId)
+      );
+      allow create: if isValidId(consentId) && isActiveUser()
+        && isValidConsentRecord(incoming(), consentId)
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(consentId) && isActiveUser()
+        && isValidConsentRecord(incoming(), consentId)
+        && incoming().id == existing().id && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && (isSuperAdmin() || existing().userId == request.auth.uid);
+      allow delete: if isValidId(consentId) && (isSuperAdmin() || (resource != null && isActiveUser() && existing().userId == request.auth.uid));
+    }
+
+    // Audit Logs (Immutable append-only)
+    match /audit_logs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn() && (
+        isSuperAdmin() ||
+        (resource != null && (isSchoolAdmin(existing().schoolId) || existing().actorUid == request.auth.uid))
+      );
+      allow list: if isSignedIn() && (
+        isBootstrappedSuperAdmin() ||
+        resource.data.actorUid == request.auth.uid ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'super_admin') ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'school_admin' && resource.data.schoolId == callerData().schoolId)
+      );
+      allow create: if isValidId(logId) && isEmailVerified() && isValidAuditLog(incoming(), logId);
+      allow update, delete: if false;
+    }
+
+    // AI Usage Logs (Append-only telemetry)
+    match /ai_usage_logs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn() && (
+        isSuperAdmin() ||
+        (resource != null && (isSchoolAdmin(existing().schoolId) || existing().userId == request.auth.uid))
+      );
+      allow list: if isSignedIn() && (
+        isBootstrappedSuperAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'super_admin') ||
+        (callerExists() && callerData().status == 'active' && callerData().role == 'school_admin' && resource.data.schoolId == callerData().schoolId)
+      );
+      allow create: if isValidId(logId) && isEmailVerified() && isValidAiUsageLog(incoming(), logId);
+      allow update, delete: if false;
+    }
+
+    // System Config
+    match /system_config/{configId} {
+      allow get: if configId == 'global' && isSignedIn();
+      allow list: if false;
+      allow create, update: if configId == 'global' && isSuperAdmin() && isValidSystemConfig(incoming(), configId);
+      allow delete: if false;
+    }
+
+    // Notifications
+    match /notifications/{notifId} {
+      allow get: if isValidId(notifId) && isSignedIn() && (isSuperAdmin() || (resource != null && existing().recipientUid == request.auth.uid));
+      allow list: if isSignedIn() && (resource.data.recipientUid == request.auth.uid || isBootstrappedSuperAdmin() || (callerExists() && callerData().role == 'super_admin'));
+      allow create: if isValidId(notifId) && isActiveUser() && isValidNotification(incoming(), notifId)
+        && incoming().createdAt == request.time
+        && (isSuperAdmin() || isSchoolAdmin(incoming().schoolId) || isTeacherInSchool(incoming().schoolId) || incoming().recipientUid == request.auth.uid);
+      allow update: if isValidId(notifId) && isActiveUser() && isValidNotification(incoming(), notifId)
+        && existing().recipientUid == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isValidId(notifId) && (isSuperAdmin() || (resource != null && isActiveUser() && existing().recipientUid == request.auth.uid));
+    }
+  }
+}

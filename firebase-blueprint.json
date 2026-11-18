@@ -1,0 +1,347 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Core user account, RBAC role, account status, school/class scope, and parent-child links.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "role": { "type": "string", "enum": ["student", "parent", "teacher", "school_admin", "super_admin"] },
+        "status": { "type": "string", "enum": ["active", "pending_verification", "suspended", "deleted"] },
+        "schoolId": { "type": "string", "maxLength": 128 },
+        "classIds": { "type": "array", "description": "Assigned class IDs (max 20)." },
+        "gradeLevel": { "type": "string", "maxLength": 40 },
+        "ageGroup": { "type": "string", "enum": ["6-8", "9-11", "12-14", "15-18", "adult"] },
+        "allergies": { "type": "array", "description": "Declared allergen keywords (max 20)." },
+        "linkedChildIds": { "type": "array", "description": "Verified student UIDs linked to a parent (max 10)." },
+        "verifiedParentIds": { "type": "array", "description": "Verified parent UIDs linked to a student (max 5)." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "role", "status", "schoolId", "createdAt", "updatedAt"]
+    },
+    "School": {
+      "title": "School",
+      "description": "School tenant organization with boarding configuration and data retention policy.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "code": { "type": "string", "minLength": 2, "maxLength": 32, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "province": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "level": { "type": "string", "enum": ["primary", "secondary", "high", "k12"] },
+        "boardingEnabled": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "adminUid": { "type": "string", "maxLength": 128 },
+        "retentionDays": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "code", "province", "level", "boardingEnabled", "status", "retentionDays", "createdAt", "updatedAt"]
+    },
+    "AcademicYear": {
+      "title": "AcademicYear",
+      "description": "Academic year definition scoped under a school.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "isCurrent": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "schoolId", "name", "startDate", "endDate", "isCurrent", "createdAt", "updatedAt"]
+    },
+    "SchoolClass": {
+      "title": "SchoolClass",
+      "description": "Classrooms assigned to teachers inside a school.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "academicYearId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "grade": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "ageGroup": { "type": "string", "enum": ["6-8", "9-11", "12-14", "15-18"] },
+        "teacherUid": { "type": "string", "maxLength": 128 },
+        "teacherName": { "type": "string", "maxLength": 120 },
+        "studentCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "schoolId", "academicYearId", "name", "grade", "ageGroup", "createdAt", "updatedAt"]
+    },
+    "ParentChildLink": {
+      "title": "ParentChildLink",
+      "description": "Verified link request between a parent account and a student account.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "parentUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "parentEmail": { "type": "string", "maxLength": 254 },
+        "studentUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["pending", "verified", "rejected", "revoked"] },
+        "verifiedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "schoolId", "parentUid", "studentUid", "status", "createdAt", "updatedAt"]
+    },
+    "VietnameseFood": {
+      "title": "VietnameseFood",
+      "description": "Vietnamese food nutrition database record with source verification.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "nameVi": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "nameEn": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "enum": ["grains_starches", "meat", "seafood", "eggs", "dairy", "vegetables", "fruits", "legumes", "fats_oils", "traditional_dishes", "soups_broths", "boarding_meals"] },
+        "ingredients": { "type": "array" },
+        "standardServingG": { "type": "number" },
+        "servingLabel": { "type": "string", "maxLength": 80 },
+        "energyKcal": { "type": "number" },
+        "proteinG": { "type": "number" },
+        "carbsG": { "type": "number" },
+        "fatG": { "type": "number" },
+        "fiberG": { "type": "number" },
+        "micronutrients": { "type": "object" },
+        "allergens": { "type": "array" },
+        "sourceRef": { "type": "string", "maxLength": 300 },
+        "verified": { "type": "boolean" },
+        "updatedDate": { "type": "string", "maxLength": 30 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nameVi", "category", "standardServingG", "energyKcal", "proteinG", "carbsG", "fatG", "fiberG", "verified", "sourceRef", "createdAt", "updatedAt"]
+    },
+    "MealLog": {
+      "title": "MealLog",
+      "description": "Student meal record with recognized items, calculated nutrients, and deterministic scoring.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "studentUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "verifiedParentIds": { "type": "array" },
+        "mealType": { "type": "string", "enum": ["breakfast", "lunch", "dinner", "snack"] },
+        "dateStr": { "type": "string", "maxLength": 20 },
+        "imagePreviewUrl": { "type": "string", "maxLength": 200000 },
+        "imageQuality": { "type": "string", "enum": ["good", "blurry", "dark", "partial", "manual"] },
+        "items": { "type": "array" },
+        "nutritionTotals": { "type": "object" },
+        "scoreBreakdown": { "type": "object" },
+        "aiAdvice": { "type": "object" },
+        "teacherReviewed": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "schoolId", "studentUid", "mealType", "dateStr", "items", "nutritionTotals", "scoreBreakdown", "createdAt", "updatedAt"]
+    },
+    "MenuPlan": {
+      "title": "MenuPlan",
+      "description": "School or AI-generated boarding menu with approval workflow.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "minLength": 2, "maxLength": 180 },
+        "periodType": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "gradeLevel": { "type": "string", "maxLength": 40 },
+        "ageGroup": { "type": "string", "enum": ["6-8", "9-11", "12-14", "15-18"] },
+        "budgetVndPerMeal": { "type": "number" },
+        "excludedAllergens": { "type": "array" },
+        "foodSources": { "type": "array" },
+        "status": { "type": "string", "enum": ["draft", "ai_suggested", "pending_approval", "approved", "rejected", "published"] },
+        "days": { "type": "array" },
+        "nutritionSummary": { "type": "object" },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "approvedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "schoolId", "title", "periodType", "ageGroup", "status", "days", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "TeacherComment": {
+      "title": "TeacherComment",
+      "description": "Teacher feedback and home nutrition suggestion for a student.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "classId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "teacherUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "teacherName": { "type": "string", "maxLength": 120 },
+        "studentUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "verifiedParentIds": { "type": "array" },
+        "category": { "type": "string", "enum": ["praise", "attention", "allergy_note", "home_activity"] },
+        "content": { "type": "string", "minLength": 2, "maxLength": 1000 },
+        "homeSuggestion": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "schoolId", "classId", "teacherUid", "studentUid", "category", "content", "createdAt", "updatedAt"]
+    },
+    "StudentTask": {
+      "title": "StudentTask",
+      "description": "Nutrition education task assigned by a teacher.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "classId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "teacherUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 2, "maxLength": 180 },
+        "description": { "type": "string", "maxLength": 800 },
+        "targetCategory": { "type": "string", "maxLength": 60 },
+        "points": { "type": "integer" },
+        "dueDate": { "type": "string", "maxLength": 20 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "schoolId", "classId", "teacherUid", "title", "points", "createdAt", "updatedAt"]
+    },
+    "StudentProgress": {
+      "title": "StudentProgress",
+      "description": "Student points, badges, quiz completions, and consented growth metrics.",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "verifiedParentIds": { "type": "array" },
+        "points": { "type": "integer" },
+        "streakDays": { "type": "integer" },
+        "completedTaskIds": { "type": "array" },
+        "quizHistory": { "type": "array" },
+        "badges": { "type": "array" },
+        "growthRecords": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentUid", "schoolId", "points", "streakDays", "updatedAt"]
+    },
+    "ConsentRecord": {
+      "title": "ConsentRecord",
+      "description": "Explicit user/parent consent record for AI analysis, growth tracking, and data retention.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "subjectStudentUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "consentType": { "type": "string", "enum": ["ai_photo_analysis", "growth_tracking", "nutrition_reporting", "data_retention"] },
+        "granted": { "type": "boolean" },
+        "policyVersion": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "schoolId", "userId", "subjectStudentUid", "consentType", "granted", "policyVersion", "createdAt", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable security and governance audit log entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "maxLength": 128 },
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "actorEmail": { "type": "string", "maxLength": 254 },
+        "actorRole": { "type": "string", "maxLength": 40 },
+        "action": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "targetCollection": { "type": "string", "maxLength": 80 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "details": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "actorUid", "actorRole", "action", "targetCollection", "targetId", "createdAt"]
+    },
+    "AiUsageLog": {
+      "title": "AiUsageLog",
+      "description": "AI API usage, token consumption, latency, and cost record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "userRole": { "type": "string", "maxLength": 40 },
+        "endpoint": { "type": "string", "maxLength": 120 },
+        "model": { "type": "string", "maxLength": 80 },
+        "promptTokens": { "type": "integer" },
+        "outputTokens": { "type": "integer" },
+        "totalTokens": { "type": "integer" },
+        "estimatedCostUsd": { "type": "number" },
+        "latencyMs": { "type": "integer" },
+        "status": { "type": "string", "enum": ["success", "error", "rate_limited", "timeout"] },
+        "errorMessage": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "userRole", "endpoint", "model", "totalTokens", "estimatedCostUsd", "latencyMs", "status", "createdAt"]
+    },
+    "SystemConfig": {
+      "title": "SystemConfig",
+      "description": "Global platform configuration for AI limits, retention, and backups.",
+      "type": "object",
+      "properties": {
+        "configId": { "type": "string", "maxLength": 64 },
+        "aiRateLimitPerMinute": { "type": "integer" },
+        "aiTimeoutMs": { "type": "integer" },
+        "defaultRetentionDays": { "type": "integer" },
+        "backupSchedule": { "type": "string", "maxLength": 60 },
+        "lastBackupExportAt": { "type": "string", "maxLength": 60 },
+        "maintenanceMode": { "type": "boolean" },
+        "updatedByUid": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["configId", "aiRateLimitPerMinute", "aiTimeoutMs", "defaultRetentionDays", "maintenanceMode", "updatedByUid", "updatedAt"]
+    },
+    "NotificationItem": {
+      "title": "NotificationItem",
+      "description": "User notification entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolId": { "type": "string", "maxLength": 128 },
+        "recipientUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "body": { "type": "string", "maxLength": 600 },
+        "type": { "type": "string", "enum": ["menu", "comment", "allergy", "task", "system"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "recipientUid", "title", "body", "type", "read", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": { "$ref": "#/entities/UserProfile" }, "description": "User profiles & RBAC assignments." },
+    "/schools/{schoolId}": { "schema": { "$ref": "#/entities/School" }, "description": "School tenants." },
+    "/schools/{schoolId}/academic_years/{yearId}": { "schema": { "$ref": "#/entities/AcademicYear" }, "description": "School academic years." },
+    "/schools/{schoolId}/classes/{classId}": { "schema": { "$ref": "#/entities/SchoolClass" }, "description": "Classes in a school." },
+    "/parent_child_links/{linkId}": { "schema": { "$ref": "#/entities/ParentChildLink" }, "description": "Verified parent-student associations." },
+    "/foods/{foodId}": { "schema": { "$ref": "#/entities/VietnameseFood" }, "description": "Vietnamese nutrition database." },
+    "/meal_logs/{logId}": { "schema": { "$ref": "#/entities/MealLog" }, "description": "Student meal analysis logs." },
+    "/menus/{menuId}": { "schema": { "$ref": "#/entities/MenuPlan" }, "description": "Boarding school & AI meal menus." },
+    "/teacher_comments/{commentId}": { "schema": { "$ref": "#/entities/TeacherComment" }, "description": "Teacher feedback for students/parents." },
+    "/student_tasks/{taskId}": { "schema": { "$ref": "#/entities/StudentTask" }, "description": "Class nutrition education tasks." },
+    "/student_progress/{studentUid}": { "schema": { "$ref": "#/entities/StudentProgress" }, "description": "Student badges, quiz history, and growth." },
+    "/consent_records/{consentId}": { "schema": { "$ref": "#/entities/ConsentRecord" }, "description": "Consent records for data and AI processing." },
+    "/audit_logs/{logId}": { "schema": { "$ref": "#/entities/AuditLog" }, "description": "Immutable security audit trail." },
+    "/ai_usage_logs/{logId}": { "schema": { "$ref": "#/entities/AiUsageLog" }, "description": "Server-verified AI API usage and costs." },
+    "/system_config/{configId}": { "schema": { "$ref": "#/entities/SystemConfig" }, "description": "Platform-wide configuration." },
+    "/notifications/{notifId}": { "schema": { "$ref": "#/entities/NotificationItem" }, "description": "Targeted notifications." }
+  }
+}
