@@ -1,5 +1,23 @@
 import { firebasePublicMetadata } from './firebase';
 
+export type AuthProfileState =
+  | 'UNAUTHENTICATED'
+  | 'AUTHENTICATED'
+  | 'PROFILE_LOADING'
+  | 'PROFILE_NOT_FOUND'
+  | 'PROFILE_PENDING'
+  | 'PROFILE_ACTIVE'
+  | 'PROFILE_DISABLED'
+  | 'PERMISSION_DENIED'
+  | 'PROFILE_ERROR';
+
+export interface ProfileErrorClassification {
+  state: 'PERMISSION_DENIED' | 'PROFILE_NOT_FOUND' | 'PROFILE_PENDING' | 'PROFILE_ERROR';
+  message: string;
+  operationType?: string;
+  path?: string;
+}
+
 export interface AuthErrorInfo {
   code: string;
   message: string;
@@ -227,14 +245,15 @@ export function handleAuthError(error: unknown): AuthErrorInfo {
       };
 
     default: {
+      const classified = classifyProfileError(error);
       const safeFallback =
-        rawMessage.includes('PERMISSION_DENIED') || rawMessage.includes('Missing or insufficient permissions')
-          ? 'Không đủ quyền truy cập hồ sơ người dùng trong Firestore. Vui lòng liên hệ quản trị viên.'
-          : rawMessage.includes('EMAIL_NOT_VERIFIED')
-            ? 'Email tài khoản chưa được xác minh. Vui lòng kiểm tra hộp thư để xác minh email.'
-            : rawMessage && !rawMessage.toLowerCase().includes('aizasy')
-              ? rawMessage
-              : 'Đăng nhập không thành công. Vui lòng thử lại.';
+        classified.state === 'PERMISSION_DENIED' ||
+        classified.state === 'PROFILE_PENDING' ||
+        rawMessage.includes('PROFILE_CORRUPT')
+          ? classified.message
+          : rawMessage && !rawMessage.toLowerCase().includes('aizasy')
+            ? classified.message || rawMessage
+            : 'Đăng nhập không thành công. Vui lòng thử lại.';
 
       return {
         code,
@@ -247,6 +266,104 @@ export function handleAuthError(error: unknown): AuthErrorInfo {
       };
     }
   }
+}
+
+export function classifyProfileError(error: unknown): ProfileErrorClassification {
+  const rawMessage = error instanceof Error ? error.message : String(error || '');
+
+  // Parse structured FirestoreErrorInfo thrown by handleFirestoreError
+  let parsedErrorText = rawMessage;
+  let operationType: string | undefined;
+  let path: string | undefined;
+  try {
+    const parsed = JSON.parse(rawMessage);
+    if (parsed && typeof parsed === 'object') {
+      parsedErrorText = String(parsed.error || rawMessage);
+      operationType = typeof parsed.operationType === 'string' ? parsed.operationType : undefined;
+      path = typeof parsed.path === 'string' ? parsed.path : undefined;
+    }
+  } catch {
+    // Plain error string
+  }
+
+  const lower = parsedErrorText.toLowerCase();
+
+  if (rawMessage.includes('EMAIL_NOT_VERIFIED')) {
+    return {
+      state: 'PROFILE_PENDING',
+      message: 'Email tài khoản chưa được xác minh. Vui lòng kiểm tra hộp thư để xác minh email.',
+    };
+  }
+
+  if (
+    lower.includes('permission-denied') ||
+    lower.includes('permission_denied') ||
+    lower.includes('missing or insufficient permissions')
+  ) {
+    console.error('[AuthProfile][PERMISSION_DENIED]', {
+      operationType: operationType || 'unknown',
+      path: path || 'users/{uid}',
+      detail: parsedErrorText,
+    });
+
+    const isCreate = operationType === 'create' || operationType === 'write';
+    return {
+      state: 'PERMISSION_DENIED',
+      operationType,
+      path,
+      message: isCreate
+        ? 'Không đủ quyền khởi tạo hồ sơ người dùng trong Firestore. Vui lòng kiểm tra lại Firestore Security Rules hoặc liên hệ quản trị viên.'
+        : 'Không đủ quyền truy cập hồ sơ người dùng trong Firestore. Vui lòng liên hệ quản trị viên.',
+    };
+  }
+
+  if (
+    lower.includes('not-found') ||
+    lower.includes('not_found') ||
+    lower.includes('document-not-found') ||
+    lower.includes('no document to update')
+  ) {
+    console.warn('[AuthProfile][PROFILE_NOT_FOUND]', { operationType, path });
+    return {
+      state: 'PROFILE_NOT_FOUND',
+      operationType,
+      path,
+      message: 'Tài khoản chưa có hồ sơ trong Firestore.',
+    };
+  }
+
+  if (rawMessage.includes('PROFILE_CORRUPT')) {
+    console.error('[AuthProfile][PROFILE_CORRUPT]', { detail: rawMessage });
+    return {
+      state: 'PROFILE_ERROR',
+      operationType,
+      path,
+      message: 'Hồ sơ người dùng hiện có bị thiếu trường thông tin bắt buộc (vai trò, trạng thái hoặc mã trường). Vui lòng liên hệ quản trị viên.',
+    };
+  }
+
+  if (
+    lower.includes('unavailable') ||
+    lower.includes('offline') ||
+    lower.includes('network') ||
+    lower.includes('deadline-exceeded')
+  ) {
+    console.error('[AuthProfile][NETWORK_ERROR]', { operationType, path, detail: parsedErrorText });
+    return {
+      state: 'PROFILE_ERROR',
+      operationType,
+      path,
+      message: 'Không thể kết nối tới cơ sở dữ liệu Firestore. Vui lòng kiểm tra kết nối mạng và thử lại.',
+    };
+  }
+
+  console.error('[AuthProfile][PROFILE_ERROR]', { operationType, path, detail: parsedErrorText });
+  return {
+    state: 'PROFILE_ERROR',
+    operationType,
+    path,
+    message: 'Đã xảy ra lỗi khi tải hoặc xác thực hồ sơ người dùng. Vui lòng thử lại hoặc liên hệ quản trị viên.',
+  };
 }
 
 export function isDomainMatchedInList(hostname: string, authorizedDomains: string[]): boolean {

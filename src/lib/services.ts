@@ -244,18 +244,22 @@ export const AuthService = {
       await UserRepo.create(newProfile);
 
       if (initialRole === 'student') {
-        await StudentProgressRepo.upsert({
-          studentUid: fbUser.uid,
-          schoolId: safeSchoolId || DEFAULT_DEMO_SCHOOL_ID,
-          classId: '',
-          verifiedParentIds: [],
-          points: 10,
-          streakDays: 1,
-          completedTaskIds: [],
-          quizHistory: [],
-          badges: ['Thành viên mới SmartPlate'],
-          growthRecords: [],
-        });
+        try {
+          await StudentProgressRepo.upsert({
+            studentUid: fbUser.uid,
+            schoolId: safeSchoolId || DEFAULT_DEMO_SCHOOL_ID,
+            classId: '',
+            verifiedParentIds: [],
+            points: 10,
+            streakDays: 1,
+            completedTaskIds: [],
+            quizHistory: [],
+            badges: ['Thành viên mới SmartPlate'],
+            growthRecords: [],
+          });
+        } catch (progressErr) {
+          console.warn('[AuthProfile] Không thể khởi tạo student_progress ban đầu:', progressErr);
+        }
       }
 
       await AuditService.log({
@@ -279,6 +283,25 @@ export const AuthService = {
     } finally {
       inFlightProfileMap.delete(fbUser.uid);
     }
+  },
+
+  validateLoadedUserProfile(profile: UserProfile, expectedUid: string): UserProfile {
+    const validRoles: UserRole[] = ['student', 'parent', 'teacher', 'school_admin', 'super_admin'];
+    const validStatuses: UserProfile['status'][] = ['active', 'pending_verification', 'suspended', 'deleted'];
+
+    if (!profile || profile.uid !== expectedUid) {
+      throw new Error('PROFILE_CORRUPT:uid_mismatch');
+    }
+    if (!validRoles.includes(profile.role)) {
+      throw new Error('PROFILE_CORRUPT:invalid_role');
+    }
+    if (!validStatuses.includes(profile.status)) {
+      throw new Error('PROFILE_CORRUPT:invalid_status');
+    }
+    if (profile.role !== 'super_admin' && (!profile.schoolId || typeof profile.schoolId !== 'string')) {
+      throw new Error('PROFILE_CORRUPT:missing_schoolId');
+    }
+    return profile;
   },
 };
 

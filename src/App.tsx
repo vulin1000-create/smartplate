@@ -105,10 +105,12 @@ function SmartPlateApp() {
     authReady,
     loadingProfile,
     isSigningIn,
+    profileState,
     fbUser,
     profile,
     schools,
     authErrorInfo,
+    profileErrorMessage,
     domainStatus,
     emailVerificationRequired,
     onboardingRole,
@@ -118,6 +120,7 @@ function SmartPlateApp() {
     signInWithGoogle,
     signInWithEmail,
     signOutUser,
+    retryProfileLoad,
     resendVerificationEmail,
     reloadAuthUser,
     clearAuthError,
@@ -208,6 +211,70 @@ function SmartPlateApp() {
               type="button"
               onClick={signOutUser}
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-medium rounded-lg hover:bg-slate-50"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Đăng xuất
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Authenticated user whose Firestore profile hit PERMISSION_DENIED / PROFILE_ERROR / PROFILE_NOT_FOUND
+  if (
+    fbUser &&
+    (profileState === 'PERMISSION_DENIED' ||
+      profileState === 'PROFILE_ERROR' ||
+      profileState === 'PROFILE_NOT_FOUND')
+  ) {
+    const isPerm = profileState === 'PERMISSION_DENIED';
+    const isNotFound = profileState === 'PROFILE_NOT_FOUND';
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white border border-rose-200 rounded-xl p-6 space-y-4">
+          <div className="flex items-center gap-3 text-rose-700">
+            <AlertTriangle className="w-6 h-6 shrink-0" />
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                {isPerm
+                  ? 'Không đủ quyền truy cập hồ sơ Firestore'
+                  : isNotFound
+                    ? 'Chưa tìm thấy hồ sơ người dùng'
+                    : 'Lỗi tải hồ sơ người dùng'}
+              </h2>
+              <div className="text-xs font-mono text-slate-500 mt-0.5">Trạng thái: {profileState}</div>
+            </div>
+          </div>
+
+          <p className="text-sm text-slate-600 leading-relaxed">
+            {profileErrorMessage ||
+              authErrorInfo?.message ||
+              'Không thể hoàn tất tải hồ sơ người dùng từ Firestore.'}
+          </p>
+
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 space-y-1">
+            <div>
+              Tài khoản đã xác thực: <span className="font-medium text-slate-900">{fbUser.email}</span>
+            </div>
+            <div>
+              Đường dẫn hồ sơ: <span className="font-mono text-slate-800">users/{fbUser.uid}</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={retryProfileLoad}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 text-white text-xs font-medium rounded-lg hover:bg-emerald-800"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Thử tải lại hồ sơ
+            </button>
+            <button
+              type="button"
+              onClick={signOutUser}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800"
             >
               <LogOut className="w-3.5 h-3.5" />
               Đăng xuất

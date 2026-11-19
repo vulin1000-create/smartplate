@@ -351,7 +351,7 @@ service cloud.firestore {
         isSuperAdmin() ||
         (resource != null && isActiveUser() && callerData().role == 'school_admin' && existing().schoolId == callerData().schoolId) ||
         (resource != null && isActiveUser() && callerData().role == 'teacher' && existing().schoolId == callerData().schoolId && existing().role == 'student' && existing().classIds is list && callerData().classIds is list && callerData().classIds.size() > 0 && existing().classIds.hasAny(callerData().classIds)) ||
-        (resource != null && isActiveUser() && callerData().role == 'parent' && userId in callerData().linkedChildIds)
+        (resource != null && isActiveUser() && callerData().role == 'parent' && 'linkedChildIds' in callerData() && callerData().linkedChildIds is list && userId in callerData().linkedChildIds)
       );
       allow list: if isSignedIn() && (
         resource.data.uid == request.auth.uid ||
