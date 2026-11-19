@@ -187,25 +187,27 @@ export function ReportsCenter({
       XLSX.utils.book_append_sheet(wb, ws2, 'AI_Usage');
     }
 
-    XLSX.writeFile(wb, `SmartPlate_BaoCao_${user.role}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, `SMARTPLATE_BaoCao_${user.role}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const handleExportPdf = () => {
     const doc = new jsPDF();
     doc.setFontSize(14);
-    doc.text(stripDiacriticsForPdf(`SmartPlate VN 2.0 - Bao cao phan tich (${user.role})`), 14, 16);
+    doc.text(stripDiacriticsForPdf(`SMARTPLATE - Bao cao phan tich (${user.role})`), 14, 15);
+    doc.setFontSize(9);
+    doc.text('AI Nutrition Education Platform | Eat Smart - Live Healthy', 14, 21);
     doc.setFontSize(10);
-    doc.text(stripDiacriticsForPdf(`Pham vi: ${scopeLabel}`), 14, 23);
+    doc.text(stripDiacriticsForPdf(`Pham vi: ${scopeLabel}`), 14, 27);
     doc.text(
       stripDiacriticsForPdf(
         `So bua an: ${summaryStats.count} | Diem TB: ${summaryStats.avgScore}/100 | Kcal TB: ${summaryStats.avgKcal}`
       ),
       14,
-      29
+      33
     );
 
     autoTable(doc, {
-      startY: 35,
+      startY: 39,
       head: [['Ngay', 'Hoc sinh', 'Bua', 'Kcal', 'Protein(g)', 'Diem', 'Di ung']],
       body:
         filteredMeals.length > 0
@@ -221,15 +223,18 @@ export function ReportsCenter({
           : [['-', 'Chua co du lieu', '-', '-', '-', '-', '-']],
     });
 
-    doc.save(`SmartPlate_BaoCao_${user.role}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    doc.save(`SMARTPLATE_BaoCao_${user.role}_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   return (
     <div className="space-y-6">
       <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
+        <div className="space-y-1">
+          <div className="text-[11px] font-semibold tracking-wide text-emerald-700 uppercase">
+            SMARTPLATE · Eat Smart – Live Healthy
+          </div>
           <h2 className="text-lg font-semibold text-slate-900">Trung tâm Báo cáo & Phân tích Tập trung</h2>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-slate-500">
             Phạm vi dữ liệu thực tế: <span className="font-medium text-slate-700">{scopeLabel}</span>
           </p>
         </div>

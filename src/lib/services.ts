@@ -254,7 +254,7 @@ export const AuthService = {
             streakDays: 1,
             completedTaskIds: [],
             quizHistory: [],
-            badges: ['Thành viên mới SmartPlate'],
+            badges: ['Thành viên mới SMARTPLATE'],
             growthRecords: [],
           });
         } catch (progressErr) {

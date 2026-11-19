@@ -237,7 +237,7 @@ export function SchoolAdminDashboard({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `SmartPlate_Backup_${schoolId}_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `SMARTPLATE_Backup_${schoolId}_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };

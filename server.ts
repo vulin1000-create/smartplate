@@ -221,7 +221,7 @@ async function startServer() {
   app.use(express.json({ limit: '8mb' }));
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, service: 'SmartPlate VN 2.0 AI Engine', model: MODEL_ID });
+    res.json({ ok: true, service: 'SMARTPLATE AI Engine', model: MODEL_ID });
   });
 
   app.get('/api/auth/session', requireAuth, (req: AuthenticatedRequest, res: Response) => {
@@ -688,7 +688,7 @@ Hãy ưu tiên chọn foodId từ danh mục trên.`;
 
   const port = Number(process.env.PORT || 3000);
   app.listen(port, '0.0.0.0', () => {
-    console.log(`SmartPlate VN 2.0 server listening on http://0.0.0.0:${port}`);
+    console.log(`SMARTPLATE server listening on http://0.0.0.0:${port}`);
   });
 }
 

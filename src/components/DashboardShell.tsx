@@ -8,6 +8,7 @@ import {
   X,
 } from 'lucide-react';
 import { UserProfile, UserRole } from '../types/domain';
+import { BrandLogo } from './BrandLogo';
 
 export interface NavItem {
   id: string;
@@ -51,9 +52,9 @@ export function DashboardShell({
 
   const SidebarContent = (
     <div className="flex flex-col h-full bg-white border-r border-slate-200 w-64">
-      <div className="px-5 py-5 border-b border-slate-200">
-        <div className="text-lg font-bold tracking-tight text-slate-900">SmartPlate VN 2.0</div>
-        <div className="mt-1 text-xs text-slate-500 truncate">
+      <div className="px-5 py-5 border-b border-slate-200 space-y-2">
+        <BrandLogo showTagline />
+        <div className="text-xs text-slate-500 truncate">
           {ROLE_TITLES[user.role]} · {schoolName || 'Toàn hệ thống'}
         </div>
       </div>
@@ -162,7 +163,7 @@ export function DashboardShell({
               <Menu className="w-5 h-5" />
             </button>
             <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm text-slate-500 min-w-0">
-              <span className="hidden sm:inline whitespace-nowrap">SmartPlate VN 2.0</span>
+              <span className="hidden sm:inline whitespace-nowrap font-medium text-slate-700">SMARTPLATE</span>
               <ChevronRight className="hidden sm:inline w-4 h-4 text-slate-400 shrink-0" />
               <span className="whitespace-nowrap text-slate-600">{ROLE_TITLES[user.role]}</span>
               <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
@@ -186,6 +187,13 @@ export function DashboardShell({
         <main className="flex-1 p-4 sm:p-6 max-w-[1320px] w-full mx-auto space-y-6">
           {children}
         </main>
+
+        <footer className="border-t border-slate-200 bg-white px-4 sm:px-6 py-3.5 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 no-print">
+          <div className="font-medium text-slate-700">
+            SMARTPLATE <span className="font-normal text-slate-500">| AI Nutrition Education Platform</span>
+          </div>
+          <div className="text-emerald-700 font-medium">Eat Smart – Live Healthy</div>
+        </footer>
       </div>
     </div>
   );

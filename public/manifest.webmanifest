@@ -1,0 +1,37 @@
+{
+  "id": "/",
+  "name": "SMARTPLATE | AI Nutrition Education Platform",
+  "short_name": "SMARTPLATE",
+  "description": "SMARTPLATE — Eat Smart – Live Healthy. Nền tảng giáo dục dinh dưỡng học đường tích hợp AI Vision và báo cáo đa cấp.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#047857",
+  "background_color": "#f8fafc",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

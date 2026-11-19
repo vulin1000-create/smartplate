@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { BrandLogo } from './components/BrandLogo';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
 import { ParentDashboard } from './dashboards/ParentDashboard';
@@ -100,7 +101,7 @@ function UnauthorizedDomainNotice({
   );
 }
 
-function SmartPlateApp() {
+function MainApp() {
   const {
     authReady,
     loadingProfile,
@@ -154,10 +155,14 @@ function SmartPlateApp() {
   if (!authReady || loadingProfile) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl p-6 space-y-3">
-          <div className="h-5 w-48 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-64 bg-slate-100 rounded animate-pulse" />
-          <div className="h-10 w-full bg-slate-100 rounded-lg animate-pulse" />
+        <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+          <BrandLogo showTagline size="lg" />
+          <div className="space-y-2.5 pt-1">
+            <div className="h-4 w-56 bg-slate-200 rounded animate-pulse" />
+            <div className="h-4 w-64 bg-slate-100 rounded animate-pulse" />
+            <div className="h-10 w-full bg-slate-100 rounded-lg animate-pulse" />
+          </div>
+          <div className="text-xs text-slate-500">Đang khởi tạo phiên xác thực SMARTPLATE...</div>
         </div>
       </div>
     );
@@ -168,7 +173,8 @@ function SmartPlateApp() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-white border border-amber-200 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-3 text-amber-700">
+          <BrandLogo showTagline />
+          <div className="flex items-center gap-3 text-amber-700 pt-1">
             <Mail className="w-6 h-6 shrink-0" />
             <h2 className="text-lg font-semibold text-slate-900">Xác minh email tài khoản</h2>
           </div>
@@ -233,7 +239,8 @@ function SmartPlateApp() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-white border border-rose-200 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-3 text-rose-700">
+          <BrandLogo showTagline />
+          <div className="flex items-center gap-3 text-rose-700 pt-1">
             <AlertTriangle className="w-6 h-6 shrink-0" />
             <div>
               <h2 className="text-lg font-semibold text-slate-900">
@@ -293,9 +300,7 @@ function SmartPlateApp() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
         <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between gap-8">
-          <div className="text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0">
-            SmartPlate VN 2.0
-          </div>
+          <BrandLogo showTagline />
           <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
             <a href="#features" className="hover:text-slate-900 whitespace-nowrap shrink-0">
               AI Dinh dưỡng
@@ -479,6 +484,16 @@ function SmartPlateApp() {
             </div>
           </div>
         </main>
+
+        <footer className="bg-white border-t border-slate-200 px-6 py-5">
+          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-slate-900">SMARTPLATE</span>
+              <span>| AI Nutrition Education Platform</span>
+            </div>
+            <div className="font-medium text-emerald-700">Eat Smart – Live Healthy</div>
+          </div>
+        </footer>
       </div>
     );
   }
@@ -488,7 +503,8 @@ function SmartPlateApp() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-white border border-rose-200 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-3 text-rose-700">
+          <BrandLogo showTagline />
+          <div className="flex items-center gap-3 text-rose-700 pt-1">
             <Lock className="w-6 h-6" />
             <h2 className="text-lg font-semibold text-slate-900">Tài khoản đã bị khóa</h2>
           </div>
@@ -513,7 +529,8 @@ function SmartPlateApp() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-white border border-amber-200 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-3 text-amber-700">
+          <BrandLogo showTagline />
+          <div className="flex items-center gap-3 text-amber-700 pt-1">
             <AlertOctagon className="w-6 h-6" />
             <h2 className="text-lg font-semibold text-slate-900">Tài khoản đang chờ xác minh</h2>
           </div>
@@ -543,7 +560,8 @@ function SmartPlateApp() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-white border border-rose-200 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-3 text-rose-700">
+          <BrandLogo showTagline />
+          <div className="flex items-center gap-3 text-rose-700 pt-1">
             <Lock className="w-6 h-6" />
             <h2 className="text-lg font-semibold text-slate-900">Vai trò không hợp lệ</h2>
           </div>
@@ -618,7 +636,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <SmartPlateApp />
+        <MainApp />
       </AuthProvider>
     </ErrorBoundary>
   );
