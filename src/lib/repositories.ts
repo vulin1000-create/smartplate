@@ -4,6 +4,7 @@ import {
   doc,
   DocumentData,
   getDoc,
+  getDocFromServer,
   getDocs,
   limit,
   orderBy,
@@ -104,10 +105,24 @@ function stripUndefined<T extends Record<string, any>>(obj: T): T {
 }
 
 export const UserRepo = {
-  async getById(uid: string): Promise<UserProfile | null> {
+  async getById(uid: string, options?: { fromServer?: boolean }): Promise<UserProfile | null> {
     const path = `users/${uid}`;
+    const docRef = doc(db, 'users', uid);
     try {
-      const snap = await withRetry(() => getDoc(doc(db, 'users', uid)));
+      if (options?.fromServer) {
+        try {
+          const serverSnap = await withRetry(() => getDocFromServer(docRef));
+          return serverSnap.exists() ? (serverSnap.data() as UserProfile) : null;
+        } catch (serverErr: any) {
+          const msg = String(serverErr?.message || serverErr?.code || '').toLowerCase();
+          if (msg.includes('permission') || msg.includes('insufficient')) {
+            throw serverErr;
+          }
+          const fallbackSnap = await withRetry(() => getDoc(docRef));
+          return fallbackSnap.exists() ? (fallbackSnap.data() as UserProfile) : null;
+        }
+      }
+      const snap = await withRetry(() => getDoc(docRef));
       return snap.exists() ? (snap.data() as UserProfile) : null;
     } catch (err) {
       handleFirestoreError(err, OperationType.GET, path);

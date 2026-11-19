@@ -141,11 +141,11 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
       });
     }
 
-    const role = profile?.role || 'super_admin';
-    const status = profile?.status || 'active';
+    const role = profile ? profile.role : isBootstrapSuperAdmin ? 'super_admin' : '';
+    const status = profile?.status || (isBootstrapSuperAdmin ? 'active' : '');
     const schoolId = profile?.schoolId || '';
 
-    if (status === 'suspended' || status === 'deleted' || status === 'pending_verification') {
+    if (!role || status === 'suspended' || status === 'deleted' || status === 'pending_verification') {
       return res.status(403).json({ error: 'Tài khoản đang bị khóa, chờ xác minh hoặc đã ngừng hoạt động.' });
     }
 
@@ -218,6 +218,19 @@ async function startServer() {
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, service: 'SmartPlate VN 2.0 AI Engine', model: MODEL_ID });
+  });
+
+  app.get('/api/auth/session', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const caller = req.caller!;
+    res.json({
+      authenticated: true,
+      uid: caller.uid,
+      email: caller.email,
+      emailVerified: true,
+      role: caller.role,
+      schoolId: caller.schoolId,
+      status: caller.status,
+    });
   });
 
   // 1. POST /api/ai/analyze-meal (Vision Food Recognition)

@@ -1,13 +1,34 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import {
+  browserLocalPersistence,
+  getAuth,
+  GoogleAuthProvider,
+  setPersistence,
+} from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+auth.useDeviceLanguage();
+
+// Ensure Firebase Auth session persists across reloads when browser storage is available.
+export const authPersistenceReady: Promise<void> = setPersistence(auth, browserLocalPersistence).catch(
+  (err) => {
+    console.warn('Không thể thiết lập browserLocalPersistence (môi trường hạn chế storage):', err?.code || err);
+  }
+);
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export const firebasePublicMetadata = {
+  projectId: firebaseConfig.projectId,
+  authDomain: firebaseConfig.authDomain,
+  apiKey: firebaseConfig.apiKey,
+  firestoreDatabaseId: firebaseConfig.firestoreDatabaseId,
+};
 
 export enum OperationType {
   CREATE = 'create',

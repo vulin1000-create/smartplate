@@ -1,100 +1,151 @@
-import React, { useEffect, useState } from 'react';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { AlertOctagon, ArrowRight, Lock, LogOut, ShieldCheck } from 'lucide-react';
-import { School, UserProfile } from './types/domain';
-import { auth } from './lib/firebase';
-import { SchoolRepo, UserRepo } from './lib/repositories';
-import { AuthService, BootstrapService, DEFAULT_DEMO_SCHOOL_ID } from './lib/services';
+import React, { useState } from 'react';
+import {
+  AlertOctagon,
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  Copy,
+  Lock,
+  LogOut,
+  Mail,
+  RefreshCw,
+} from 'lucide-react';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
-import { StudentDashboard } from './dashboards/StudentDashboard';
 import { ParentDashboard } from './dashboards/ParentDashboard';
-import { TeacherDashboard } from './dashboards/TeacherDashboard';
 import { SchoolAdminDashboard } from './dashboards/SchoolAdminDashboard';
+import { StudentDashboard } from './dashboards/StudentDashboard';
 import { SuperAdminDashboard } from './dashboards/SuperAdminDashboard';
+import { TeacherDashboard } from './dashboards/TeacherDashboard';
+import { DEFAULT_DEMO_SCHOOL_ID } from './lib/services';
+
+function UnauthorizedDomainNotice({
+  hostname,
+  projectId,
+  onCopy,
+  copied,
+  onRecheck,
+}: {
+  hostname: string;
+  projectId: string;
+  onCopy: () => void;
+  copied: boolean;
+  onRecheck: () => void;
+}) {
+  return (
+    <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl space-y-3 text-xs text-amber-950">
+      <div className="flex items-start gap-2.5">
+        <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <div className="font-semibold text-amber-950">
+            Domain hiện tại chưa có trong Authorized Domains của Firebase
+          </div>
+          <p className="text-amber-900 leading-relaxed">
+            Firebase Authentication chặn đăng nhập từ hostname chưa được cấp phép (lỗi{' '}
+            <span className="font-mono font-semibold">auth/unauthorized-domain</span>).
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-white border border-amber-200 rounded-lg p-2.5 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[11px] text-slate-500">Hostname thực tế cần thêm (window.location.hostname)</div>
+          <div className="font-mono text-xs font-semibold text-slate-900 truncate">
+            {hostname || '(không xác định)'}
+          </div>
+        </div>
+        {hostname && (
+          <button
+            type="button"
+            onClick={onCopy}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 text-white rounded-md text-[11px] font-medium hover:bg-slate-800 shrink-0"
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Đã sao chép' : 'Sao chép'}
+          </button>
+        )}
+      </div>
+
+      <ol className="list-decimal list-inside space-y-1 text-amber-900 leading-relaxed">
+        <li>
+          Mở <span className="font-semibold">Firebase Console</span> (dự án{' '}
+          <span className="font-mono font-medium">{projectId}</span>).
+        </li>
+        <li>
+          Vào <span className="font-semibold">Authentication → Settings → Authorized domains → Add domain</span>.
+        </li>
+        <li>
+          Dán chính xác hostname <span className="font-mono font-semibold">{hostname}</span> (chỉ nhập hostname,{' '}
+          <span className="font-semibold">không</span> thêm <span className="font-mono">https://</span>, đường dẫn{' '}
+          <span className="font-mono">/</span> hay ký tự <span className="font-mono">*</span>).
+        </li>
+        <li>
+          Kiểm tra đủ các môi trường sử dụng: <span className="font-mono">localhost</span> (phát triển), Google AI
+          Studio Preview, domain triển khai thực tế và domain tùy chỉnh (nếu có).
+        </li>
+      </ol>
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={onRecheck}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-900 text-white rounded-lg text-[11px] font-medium hover:bg-amber-800"
+        >
+          <RefreshCw className="w-3 h-3" />
+          Kiểm tra lại trạng thái domain
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function SmartPlateApp() {
-  const [authReady, setAuthReady] = useState(false);
-  const [fbUser, setFbUser] = useState<FirebaseUser | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [schools, setSchools] = useState<School[]>([]);
-  const [loadingProfile, setLoadingProfile] = useState(false);
-  const [authError, setAuthError] = useState('');
+  const {
+    authReady,
+    loadingProfile,
+    isSigningIn,
+    fbUser,
+    profile,
+    schools,
+    authErrorInfo,
+    domainStatus,
+    emailVerificationRequired,
+    onboardingRole,
+    setOnboardingRole,
+    onboardingSchoolId,
+    setOnboardingSchoolId,
+    signInWithGoogle,
+    signInWithEmail,
+    signOutUser,
+    resendVerificationEmail,
+    reloadAuthUser,
+    clearAuthError,
+    refreshDomainCheck,
+  } = useAuth();
 
-  // Onboarding defaults for first-time Google Sign-In
-  const [initialRole, setInitialRole] = useState<'student' | 'parent'>('student');
-  const [initialSchoolId, setInitialSchoolId] = useState<string>(DEFAULT_DEMO_SCHOOL_ID);
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [copiedHost, setCopiedHost] = useState(false);
+  const [showEmailForm, setShowEmailForm] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [checkingVerify, setCheckingVerify] = useState(false);
 
-  const initialRoleRef = React.useRef<'student' | 'parent'>(initialRole);
-  const initialSchoolIdRef = React.useRef<string>(initialSchoolId);
-  const resolvingUidRef = React.useRef<string | null>(null);
-
-  useEffect(() => {
-    initialRoleRef.current = initialRole;
-  }, [initialRole]);
-
-  useEffect(() => {
-    initialSchoolIdRef.current = initialSchoolId;
-  }, [initialSchoolId]);
-
-  const resolveSignedInUser = React.useCallback(async (user: FirebaseUser) => {
-    if (resolvingUidRef.current === user.uid) return;
-    resolvingUidRef.current = user.uid;
-    setLoadingProfile(true);
-    setAuthError('');
+  const handleCopyHostname = async () => {
+    if (!domainStatus.hostname) return;
     try {
-      const [existing, activeSchools] = await Promise.all([
-        UserRepo.getById(user.uid),
-        SchoolRepo.listActive().catch(() => []),
-      ]);
-      setSchools(activeSchools);
-
-      const resolved =
-        existing ||
-        (await AuthService.ensureUserProfile(
-          user,
-          initialRoleRef.current,
-          initialSchoolIdRef.current
-        ));
-      setProfile(resolved);
-      await BootstrapService.ensureInitialSeed(resolved);
-    } catch (err: any) {
-      setAuthError(err?.message || 'Không thể tải hồ sơ người dùng từ Firestore.');
-    } finally {
-      resolvingUidRef.current = null;
-      setLoadingProfile(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      setFbUser(user);
-      setAuthReady(true);
-      if (!user) {
-        setProfile(null);
-        resolvingUidRef.current = null;
-        return;
-      }
-      await resolveSignedInUser(user);
-    });
-    return () => unsub();
-  }, [resolveSignedInUser]);
-
-  const handleGoogleSignIn = async () => {
-    setAuthError('');
-    try {
-      const user = await AuthService.signInWithGoogle();
-      await resolveSignedInUser(user);
-    } catch (err: any) {
-      setAuthError(err?.message || 'Đăng nhập Google không thành công.');
-      setLoadingProfile(false);
+      await navigator.clipboard.writeText(domainStatus.hostname);
+      setCopiedHost(true);
+      setTimeout(() => setCopiedHost(false), 2000);
+    } catch {
+      // Ignore clipboard permission denial
     }
   };
 
-  const handleLogout = async () => {
-    await AuthService.logout();
-    setProfile(null);
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await signInWithEmail(emailInput, passwordInput);
   };
 
   if (!authReady || loadingProfile) {
@@ -109,8 +160,69 @@ function SmartPlateApp() {
     );
   }
 
-  // Unauthenticated Landing & Google Sign-In Gate
+  // Email verification required gate (e.g., Email/Password account not yet verified)
+  if (fbUser && emailVerificationRequired) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white border border-amber-200 rounded-xl p-6 space-y-4">
+          <div className="flex items-center gap-3 text-amber-700">
+            <Mail className="w-6 h-6 shrink-0" />
+            <h2 className="text-lg font-semibold text-slate-900">Xác minh email tài khoản</h2>
+          </div>
+          <p className="text-sm text-slate-600 leading-relaxed">
+            Tài khoản <span className="font-medium text-slate-900">{fbUser.email}</span> chưa xác minh địa chỉ email.
+            Hệ thống yêu cầu xác minh email để bảo vệ dữ liệu trường học trong Firestore.
+          </p>
+          {verificationSent && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800">
+              Đã gửi lại liên kết xác minh đến hộp thư {fbUser.email}. Vui lòng kiểm tra cả thư mục Spam.
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={checkingVerify}
+              onClick={async () => {
+                setCheckingVerify(true);
+                try {
+                  await reloadAuthUser();
+                } finally {
+                  setCheckingVerify(false);
+                }
+              }}
+              className="px-4 py-2 bg-emerald-700 text-white text-xs font-medium rounded-lg hover:bg-emerald-800 disabled:opacity-50"
+            >
+              {checkingVerify ? 'Đang kiểm tra...' : 'Tôi đã xác minh, kiểm tra lại'}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await resendVerificationEmail();
+                setVerificationSent(true);
+              }}
+              className="px-4 py-2 bg-slate-100 text-slate-800 text-xs font-medium rounded-lg hover:bg-slate-200"
+            >
+              Gửi lại email xác minh
+            </button>
+            <button
+              type="button"
+              onClick={signOutUser}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-medium rounded-lg hover:bg-slate-50"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Đăng xuất
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Unauthenticated Landing & Sign-In Gate
   if (!fbUser || !profile) {
+    const showDomainBanner =
+      domainStatus.isAuthorized === false || Boolean(authErrorInfo?.isUnauthorizedDomain);
+
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
         <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between gap-8">
@@ -130,10 +242,11 @@ function SmartPlateApp() {
           </nav>
           <button
             type="button"
-            onClick={handleGoogleSignIn}
-            className="px-4 py-2 text-xs font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 whitespace-nowrap shrink-0"
+            disabled={isSigningIn}
+            onClick={() => signInWithGoogle('popup')}
+            className="px-4 py-2 text-xs font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 disabled:opacity-50 whitespace-nowrap shrink-0"
           >
-            Đăng nhập Google
+            {isSigningIn ? 'Đang đăng nhập...' : 'Đăng nhập Google'}
           </button>
         </header>
 
@@ -150,13 +263,13 @@ function SmartPlateApp() {
             </p>
 
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-              <div className="text-sm font-semibold text-slate-900">Thiết lập lần đầu khi đăng nhập Google</div>
+              <div className="text-sm font-semibold text-slate-900">Thiết lập lần đầu khi đăng nhập</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Vai trò đăng ký mới</label>
                   <select
-                    value={initialRole}
-                    onChange={(e) => setInitialRole(e.target.value as 'student' | 'parent')}
+                    value={onboardingRole}
+                    onChange={(e) => setOnboardingRole(e.target.value as 'student' | 'parent')}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white"
                   >
                     <option value="student">Học sinh</option>
@@ -166,8 +279,8 @@ function SmartPlateApp() {
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Trường học</label>
                   <select
-                    value={initialSchoolId}
-                    onChange={(e) => setInitialSchoolId(e.target.value)}
+                    value={onboardingSchoolId}
+                    onChange={(e) => setOnboardingSchoolId(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white"
                   >
                     {schools.length > 0 ? (
@@ -183,23 +296,94 @@ function SmartPlateApp() {
                 </div>
               </div>
 
-              {authError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800">
-                  {authError}
+              {showDomainBanner && (
+                <UnauthorizedDomainNotice
+                  hostname={domainStatus.hostname}
+                  projectId={domainStatus.projectId}
+                  onCopy={handleCopyHostname}
+                  copied={copiedHost}
+                  onRecheck={refreshDomainCheck}
+                />
+              )}
+
+              {authErrorInfo && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <span>{authErrorInfo.message}</span>
+                    <button
+                      type="button"
+                      onClick={clearAuthError}
+                      className="text-rose-700 underline shrink-0"
+                    >
+                      Đóng
+                    </button>
+                  </div>
+
+                  {authErrorInfo.canOfferRedirect && (
+                    <button
+                      type="button"
+                      disabled={isSigningIn}
+                      onClick={() => signInWithGoogle('redirect')}
+                      className="w-full px-3 py-2 bg-rose-700 text-white font-medium rounded-lg hover:bg-rose-800 disabled:opacity-50"
+                    >
+                      Thử đăng nhập bằng chuyển hướng (Redirect)
+                    </button>
+                  )}
                 </div>
               )}
 
               <button
                 type="button"
-                onClick={handleGoogleSignIn}
-                className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors"
+                disabled={isSigningIn}
+                onClick={() => signInWithGoogle('popup')}
+                className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors"
               >
-                <span>Đăng nhập bằng tài khoản Google</span>
+                <span>{isSigningIn ? 'Đang xác thực với Google...' : 'Đăng nhập bằng tài khoản Google'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
-              <div className="text-xs text-slate-500">
-                Tài khoản Giáo viên, Quản trị trường được phân quyền bởi Quản trị viên sau khi đăng nhập.
+
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>
+                  Giáo viên, Quản trị trường được phân quyền bởi Quản trị viên sau khi đăng nhập.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowEmailForm((v) => !v)}
+                  className="text-emerald-700 font-medium hover:underline whitespace-nowrap ml-3"
+                >
+                  {showEmailForm ? 'Ẩn Email' : 'Đăng nhập Email'}
+                </button>
               </div>
+
+              {showEmailForm && (
+                <form onSubmit={handleEmailSubmit} className="pt-3 border-t border-slate-100 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="email"
+                      required
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      placeholder="Email tài khoản"
+                      className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
+                    />
+                    <input
+                      type="password"
+                      required
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value)}
+                      placeholder="Mật khẩu"
+                      className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSigningIn}
+                    className="w-full px-4 py-2 text-xs font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 disabled:opacity-50"
+                  >
+                    {isSigningIn ? 'Đang xử lý...' : 'Đăng nhập bằng Email'}
+                  </button>
+                </form>
+              )}
             </div>
           </div>
 
@@ -247,7 +431,7 @@ function SmartPlateApp() {
           </p>
           <button
             type="button"
-            onClick={handleLogout}
+            onClick={signOutUser}
             className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg"
           >
             <LogOut className="w-4 h-4" />
@@ -271,7 +455,7 @@ function SmartPlateApp() {
           </p>
           <button
             type="button"
-            onClick={handleLogout}
+            onClick={signOutUser}
             className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg"
           >
             <LogOut className="w-4 h-4" />
@@ -282,7 +466,10 @@ function SmartPlateApp() {
     );
   }
 
-  const schoolName = schools.find((s) => s.id === profile.schoolId)?.name || profile.schoolId || 'Trường Tiểu học Chu Văn An';
+  const schoolName =
+    schools.find((s) => s.id === profile.schoolId)?.name ||
+    profile.schoolId ||
+    'Trường Tiểu học Chu Văn An';
 
   return (
     <>
@@ -290,7 +477,7 @@ function SmartPlateApp() {
         <StudentDashboard
           user={profile}
           schoolName={schoolName}
-          onLogout={handleLogout}
+          onLogout={signOutUser}
           onOpenPrivacyModal={() => setPrivacyOpen(true)}
         />
       )}
@@ -298,7 +485,7 @@ function SmartPlateApp() {
         <ParentDashboard
           user={profile}
           schoolName={schoolName}
-          onLogout={handleLogout}
+          onLogout={signOutUser}
           onOpenPrivacyModal={() => setPrivacyOpen(true)}
         />
       )}
@@ -306,7 +493,7 @@ function SmartPlateApp() {
         <TeacherDashboard
           user={profile}
           schoolName={schoolName}
-          onLogout={handleLogout}
+          onLogout={signOutUser}
           onOpenPrivacyModal={() => setPrivacyOpen(true)}
         />
       )}
@@ -314,14 +501,14 @@ function SmartPlateApp() {
         <SchoolAdminDashboard
           user={profile}
           schoolName={schoolName}
-          onLogout={handleLogout}
+          onLogout={signOutUser}
           onOpenPrivacyModal={() => setPrivacyOpen(true)}
         />
       )}
       {profile.role === 'super_admin' && (
         <SuperAdminDashboard
           user={profile}
-          onLogout={handleLogout}
+          onLogout={signOutUser}
           onOpenPrivacyModal={() => setPrivacyOpen(true)}
         />
       )}
@@ -338,7 +525,9 @@ function SmartPlateApp() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <SmartPlateApp />
+      <AuthProvider>
+        <SmartPlateApp />
+      </AuthProvider>
     </ErrorBoundary>
   );
 }

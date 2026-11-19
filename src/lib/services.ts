@@ -1,4 +1,14 @@
-import { signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
+import {
+  getRedirectResult,
+  onAuthStateChanged as firebaseOnAuthStateChanged,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  Unsubscribe,
+  User as FirebaseUser,
+} from 'firebase/auth';
 import {
   AiUsageLog,
   ConsentType,
@@ -9,7 +19,14 @@ import {
   UserProfile,
   UserRole,
 } from '../types/domain';
-import { auth, googleProvider } from './firebase';
+import {
+  AuthErrorInfo,
+  clearRedirectPending,
+  handleAuthError as mapAuthError,
+  hasRecentPendingRedirect,
+  markRedirectPending,
+} from './authUtils';
+import { auth, authPersistenceReady, googleProvider } from './firebase';
 import {
   AcademicYearRepo,
   AiUsageLogRepo,
@@ -37,14 +54,143 @@ export function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${rand}`.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+export interface ServerSessionInfo {
+  authenticated: boolean;
+  uid: string;
+  email: string;
+  emailVerified: boolean;
+  role: UserRole;
+  schoolId: string;
+  status: UserProfile['status'];
+}
+
+let signInLock: Promise<unknown> | null = null;
+let redirectResultPromise: Promise<{ user: FirebaseUser | null; errorInfo: AuthErrorInfo | null }> | null = null;
+const inFlightProfileMap = new Map<string, Promise<UserProfile>>();
+
 export const AuthService = {
-  async signInWithGoogle(): Promise<FirebaseUser> {
-    const result = await signInWithPopup(auth, googleProvider);
-    return result.user;
+  async consumeRedirectResult(): Promise<{ user: FirebaseUser | null; errorInfo: AuthErrorInfo | null }> {
+    if (redirectResultPromise) {
+      return redirectResultPromise;
+    }
+    redirectResultPromise = (async () => {
+      try {
+        await authPersistenceReady;
+        const result = await getRedirectResult(auth);
+        clearRedirectPending();
+        return { user: result?.user || null, errorInfo: null };
+      } catch (err) {
+        clearRedirectPending();
+        return { user: null, errorInfo: mapAuthError(err) };
+      }
+    })();
+    return redirectResultPromise;
+  },
+
+  async signInWithGoogle(options?: { mode?: 'popup' | 'redirect' }): Promise<FirebaseUser | null> {
+    if (signInLock) {
+      throw new Error('Đang có phiên đăng nhập đang xử lý. Vui lòng đợi trong giây lát.');
+    }
+
+    const mode = options?.mode || 'popup';
+    const task = (async () => {
+      await authPersistenceReady;
+      if (mode === 'redirect') {
+        if (hasRecentPendingRedirect()) {
+          throw new Error('Phiên chuyển hướng đăng nhập vừa được thực hiện. Vui lòng chờ hoàn tất hoặc tải lại trang.');
+        }
+        markRedirectPending();
+        await signInWithRedirect(auth, googleProvider);
+        return null;
+      }
+
+      const result = await signInWithPopup(auth, googleProvider);
+      return result.user;
+    })();
+
+    signInLock = task;
+    try {
+      return await task;
+    } finally {
+      signInLock = null;
+    }
+  },
+
+  async signInWithEmail(email: string, password: string): Promise<FirebaseUser> {
+    if (signInLock) {
+      throw new Error('Đang có phiên đăng nhập đang xử lý. Vui lòng đợi trong giây lát.');
+    }
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) {
+      throw new Error('Vui lòng nhập đầy đủ email và mật khẩu.');
+    }
+
+    const task = (async () => {
+      await authPersistenceReady;
+      const credential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+      return credential.user;
+    })();
+
+    signInLock = task;
+    try {
+      return await task;
+    } finally {
+      signInLock = null;
+    }
+  },
+
+  async resendVerificationEmail(user: FirebaseUser): Promise<void> {
+    await sendEmailVerification(user);
+  },
+
+  async signOutUser(): Promise<void> {
+    clearRedirectPending();
+    await signOut(auth);
   },
 
   async logout(): Promise<void> {
-    await signOut(auth);
+    await this.signOutUser();
+  },
+
+  getCurrentUser(): FirebaseUser | null {
+    return auth.currentUser;
+  },
+
+  onAuthStateChanged(callback: (user: FirebaseUser | null) => void): Unsubscribe {
+    return firebaseOnAuthStateChanged(auth, callback);
+  },
+
+  handleAuthError(error: unknown): AuthErrorInfo {
+    return mapAuthError(error);
+  },
+
+  async verifyBackendSession(fbUser: FirebaseUser): Promise<ServerSessionInfo | null> {
+    try {
+      const idToken = await fbUser.getIdToken();
+      const resp = await fetch('/api/auth/session', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+        },
+      });
+      if (resp.status === 401 || resp.status === 403) {
+        const body = await resp.json().catch(() => ({}));
+        if (body?.code === 'PROFILE_REQUIRED') {
+          return null;
+        }
+        throw new Error(body?.error || 'Phiên xác thực không hợp lệ hoặc tài khoản không có quyền truy cập.');
+      }
+      if (!resp.ok) {
+        return null;
+      }
+      return (await resp.json()) as ServerSessionInfo;
+    } catch (err: any) {
+      if (err instanceof TypeError) {
+        // Network error talking to API; allow Firestore authoritative profile check to proceed
+        return null;
+      }
+      throw err;
+    }
   },
 
   async ensureUserProfile(
@@ -52,60 +198,87 @@ export const AuthService = {
     selectedRole: 'student' | 'parent' = 'student',
     selectedSchoolId: string = DEFAULT_DEMO_SCHOOL_ID
   ): Promise<UserProfile> {
-    const existing = await UserRepo.getById(fbUser.uid);
-    if (existing) {
-      return existing;
+    const existingPending = inFlightProfileMap.get(fbUser.uid);
+    if (existingPending) {
+      return existingPending;
     }
 
-    const isBootstrapAdmin =
-      fbUser.emailVerified && fbUser.email?.toLowerCase() === BOOTSTRAP_SUPER_ADMIN_EMAIL.toLowerCase();
+    const runner = (async () => {
+      const existing = await UserRepo.getById(fbUser.uid, { fromServer: true });
+      if (existing) {
+        return existing;
+      }
 
-    const initialRole: UserRole = isBootstrapAdmin ? 'super_admin' : selectedRole;
-    const newProfile: Omit<UserProfile, 'createdAt' | 'updatedAt'> = {
-      uid: fbUser.uid,
-      email: fbUser.email || '',
-      displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Người dùng',
-      photoURL: fbUser.photoURL || '',
-      role: initialRole,
-      status: 'active',
-      schoolId: isBootstrapAdmin ? '' : selectedSchoolId,
-      classIds: [],
-      ageGroup: initialRole === 'student' ? '9-11' : 'adult',
-      allergies: [],
-      linkedChildIds: [],
-      verifiedParentIds: [],
-    };
+      if (!fbUser.emailVerified) {
+        throw new Error('EMAIL_NOT_VERIFIED');
+      }
 
-    await UserRepo.create(newProfile);
+      const isBootstrapAdmin =
+        fbUser.emailVerified &&
+        fbUser.email?.toLowerCase() === BOOTSTRAP_SUPER_ADMIN_EMAIL.toLowerCase();
 
-    if (initialRole === 'student') {
-      await StudentProgressRepo.upsert({
-        studentUid: fbUser.uid,
-        schoolId: selectedSchoolId,
-        classId: '',
+      // Never accept admin/teacher roles from client onboarding input
+      const safeSelectedRole: 'student' | 'parent' = selectedRole === 'parent' ? 'parent' : 'student';
+      const initialRole: UserRole = isBootstrapAdmin ? 'super_admin' : safeSelectedRole;
+      const safeDisplayName = (fbUser.displayName || fbUser.email?.split('@')[0] || 'Người dùng')
+        .trim()
+        .slice(0, 120);
+      const safePhotoUrl = (fbUser.photoURL || '').slice(0, 500);
+      const safeSchoolId = isBootstrapAdmin ? '' : (selectedSchoolId || DEFAULT_DEMO_SCHOOL_ID).slice(0, 128);
+
+      const newProfile: Omit<UserProfile, 'createdAt' | 'updatedAt'> = {
+        uid: fbUser.uid,
+        email: fbUser.email || '',
+        displayName: safeDisplayName || 'Người dùng',
+        photoURL: safePhotoUrl,
+        role: initialRole,
+        status: 'active',
+        schoolId: safeSchoolId,
+        classIds: [],
+        ageGroup: initialRole === 'student' ? '9-11' : 'adult',
+        allergies: [],
+        linkedChildIds: [],
         verifiedParentIds: [],
-        points: 10,
-        streakDays: 1,
-        completedTaskIds: [],
-        quizHistory: [],
-        badges: ['Thành viên mới SmartPlate'],
-        growthRecords: [],
+      };
+
+      await UserRepo.create(newProfile);
+
+      if (initialRole === 'student') {
+        await StudentProgressRepo.upsert({
+          studentUid: fbUser.uid,
+          schoolId: safeSchoolId || DEFAULT_DEMO_SCHOOL_ID,
+          classId: '',
+          verifiedParentIds: [],
+          points: 10,
+          streakDays: 1,
+          completedTaskIds: [],
+          quizHistory: [],
+          badges: ['Thành viên mới SmartPlate'],
+          growthRecords: [],
+        });
+      }
+
+      await AuditService.log({
+        schoolId: newProfile.schoolId,
+        actorUid: fbUser.uid,
+        actorEmail: fbUser.email || '',
+        actorRole: initialRole,
+        action: 'USER_REGISTERED',
+        targetCollection: 'users',
+        targetId: fbUser.uid,
+        details: `Khởi tạo hồ sơ với vai trò ${initialRole}`,
       });
+
+      const created = await UserRepo.getById(fbUser.uid, { fromServer: true });
+      return created || ({ ...newProfile, createdAt: new Date(), updatedAt: new Date() } as UserProfile);
+    })();
+
+    inFlightProfileMap.set(fbUser.uid, runner);
+    try {
+      return await runner;
+    } finally {
+      inFlightProfileMap.delete(fbUser.uid);
     }
-
-    await AuditService.log({
-      schoolId: newProfile.schoolId,
-      actorUid: fbUser.uid,
-      actorEmail: fbUser.email || '',
-      actorRole: initialRole,
-      action: 'USER_REGISTERED',
-      targetCollection: 'users',
-      targetId: fbUser.uid,
-      details: `Khởi tạo hồ sơ với vai trò ${initialRole}`,
-    });
-
-    const created = await UserRepo.getById(fbUser.uid);
-    return created || ({ ...newProfile, createdAt: new Date(), updatedAt: new Date() } as UserProfile);
   },
 };
 
