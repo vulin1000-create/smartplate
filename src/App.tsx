@@ -471,6 +471,31 @@ function SmartPlateApp() {
     profile.schoolId ||
     'Trường Tiểu học Chu Văn An';
 
+  const VALID_ROLES = ['student', 'parent', 'teacher', 'school_admin', 'super_admin'];
+  if (!VALID_ROLES.includes(profile.role)) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white border border-rose-200 rounded-xl p-6 space-y-4">
+          <div className="flex items-center gap-3 text-rose-700">
+            <Lock className="w-6 h-6" />
+            <h2 className="text-lg font-semibold text-slate-900">Vai trò không hợp lệ</h2>
+          </div>
+          <p className="text-sm text-slate-600">
+            Tài khoản <span className="font-medium text-slate-900">{profile.email}</span> chưa có vai trò hợp lệ trong hệ thống. Vui lòng liên hệ Quản trị viên.
+          </p>
+          <button
+            type="button"
+            onClick={signOutUser}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg"
+          >
+            <LogOut className="w-4 h-4" />
+            Đăng xuất
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       {profile.role === 'student' && (

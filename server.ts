@@ -108,9 +108,9 @@ async function fetchUserProfileViaRest(uid: string, idToken: string): Promise<{ 
   const docData: any = await resp.json();
   const fields = docData?.fields || {};
   return {
-    role: fields.role?.stringValue || 'student',
+    role: fields.role?.stringValue || '',
     schoolId: fields.schoolId?.stringValue || '',
-    status: fields.status?.stringValue || 'active',
+    status: fields.status?.stringValue || '',
   };
 }
 
@@ -146,7 +146,11 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
     const schoolId = profile?.schoolId || '';
 
     if (!role || status === 'suspended' || status === 'deleted' || status === 'pending_verification') {
-      return res.status(403).json({ error: 'Tài khoản đang bị khóa, chờ xác minh hoặc đã ngừng hoạt động.' });
+      return res.status(403).json({
+        error: 'Tài khoản đang bị khóa, chờ xác minh hoặc đã ngừng hoạt động.',
+        code: 'ACCOUNT_INACTIVE',
+        status,
+      });
     }
 
     req.caller = {

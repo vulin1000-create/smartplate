@@ -175,7 +175,7 @@ export const AuthService = {
       });
       if (resp.status === 401 || resp.status === 403) {
         const body = await resp.json().catch(() => ({}));
-        if (body?.code === 'PROFILE_REQUIRED') {
+        if (body?.code === 'PROFILE_REQUIRED' || body?.code === 'ACCOUNT_INACTIVE') {
           return null;
         }
         throw new Error(body?.error || 'Phiên xác thực không hợp lệ hoặc tài khoản không có quyền truy cập.');
